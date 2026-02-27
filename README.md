@@ -1,5 +1,7 @@
 # YUKINET — 프로젝트 가이드
 
+https://inorinatsume.github.io/YUKINET/
+
 > **AI 딸깍질이 수학과 코드를 만날 때, 이야기는 시작된다.**
 
 ---
