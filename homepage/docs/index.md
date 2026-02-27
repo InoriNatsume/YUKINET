@@ -58,14 +58,3 @@ SDE/ODE, Flow Matching, FPE, 최적수송까지.</p>
 | [DiffSynth-Studio](https://github.com/modelscope/DiffSynth-Studio) | `{{ ver.diffsynth }}` | 훈련+추론 (통합) |
 | [HuggingFace diffusers](https://github.com/huggingface/diffusers) | `{{ ver.diffusers }}` | 훈련+추론 (Pipeline) |
 | [HuggingFace transformers](https://github.com/huggingface/transformers) | `{{ ver.transformers }}` | 모델 아키텍처 |
-
-## 구조 설계 원칙
-
-이 사이트는 **"공통 이론 → 구현 파생"** 구조를 따릅니다:
-
-- **이론** 페이지에서 수학/알고리즘을 한 번만 정의
-- **모델** 페이지에서 "이 모델은 어떤 부품을 조합했는지" 기술
-- **도구** 페이지에서 "이 도구는 어떻게 구현했는지" 기술
-- **실험** 페이지에서 "실제로 돌려보니 어땠는지" 기록
-
-같은 내용이 여러 곳에 중복되지 않습니다.
