@@ -1,0 +1,80 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>Muon / GenericOptim — Training Optimizer</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / optimizer / muon</p>
+<h1>Muon / GenericOptim — Newton-Schulz 직교화 옵티마이저</h1>
+<div class="chips">
+  <span class="chip">분류: Advanced</span>
+  <span class="chip tag diffpipe">diffusion-pipe ✓</span>
+</div>
+
+<h2>수학 정의</h2>
+<p>diffusion-pipe의 <code>GenericOptim</code>은 Muon, AdaMuon, NorMuon, Polar Express 등 다양한 직교화 기반 옵티마이저를 통합 구현합니다.</p>
+
+<h3>Newton-Schulz 반복 (핵심)</h3>
+<div class="formula">
+$$X_0 = G / \|G\|_F$$
+$$X_{k+1} = \frac{15}{8}X_k - \frac{5}{4}X_k^3 + \frac{3}{8}X_k^5$$
+</div>
+<p>이 반복은 그래디언트 행렬 $G$의 <strong>극 분해 (polar decomposition)</strong>의 직교 인자 $U$로 수렴합니다:</p>
+<div class="formula">$$G = US \;\Rightarrow\; X_\infty \to U$$</div>
+<p class="small">$U$는 "방향만" 보존하고 스케일을 제거. 모든 특이값을 1로 균일화.</p>
+
+<h3>변형들</h3>
+<table>
+  <thead><tr><th>변형</th><th>수식/설명</th><th>설정</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Muon</strong></td>
+      <td>$$\theta_{t+1} = \theta_t - \eta \cdot \text{NS}(\text{momentum}(g_t))$$<br>모멘텀 → NS 직교화 → 업데이트</td>
+      <td><code>muon = true</code></td>
+    </tr>
+    <tr>
+      <td><strong>AdaMuon</strong></td>
+      <td>NS 후 Adam-like 적응적 스케일링.<br>$$u = \text{NS}(m),\quad \theta \mathrel{-}= \eta \cdot u / (\sqrt{v}+\epsilon)$$</td>
+      <td><code>adamuon = true</code></td>
+    </tr>
+    <tr>
+      <td><strong>NorMuon</strong></td>
+      <td>NS 후 열 노름 정규화</td>
+      <td><code>normuon = true</code></td>
+    </tr>
+    <tr>
+      <td><strong>Polar Express</strong></td>
+      <td>$$\theta_{t+1} = U_t \cdot \|W_t\|_*$$<br>극 분해의 직교 인자로 가중치 자체를 제약</td>
+      <td><code>polar_express = true</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Subspace Momentum (SM)</h3>
+<div class="formula">
+$$G_\text{proj} = P_r(G) \quad\text{(랜덤 투영으로 차원 축소)}$$
+$$m_t = \beta m_{t-1} + G_\text{proj} \quad\text{(저차원에서 모멘텀)}$$
+$$\theta \mathrel{-}= \eta \cdot P_r^{-1}(m_t) \quad\text{(원래 차원으로 복원)}$$
+</div>
+<p class="small"><code>rank</code> 파라미터로 투영 차원 설정. <code>update_proj_gap</code>으로 투영 행렬 갱신 주기 결정.</p>
+
+<h2>GenericOptim 설정 예시</h2>
+<div class="codebox"># diffusion-pipe config.toml
+[optimizer]
+type = "genericoptim"
+lr = 3e-4
+betas = [0.95, 0.999]
+weight_decay = 0.01
+muon = true                 # Newton-Schulz 직교화
+ns_steps = 5                # NS 반복 횟수
+momentum_type = "ema"        # ema / heavy_ball / nag
+cpu_offload = true           # 옵티마이저 상태 CPU 오프로드
+# rank = 64                 # Subspace Momentum 활성화
+# automagic = true          # 자동 LR 방식 결합</div>
+
+<h2>직관</h2>
+<div class="box">
+<p><strong>왜 직교화?</strong> 일반 그래디언트는 방향과 크기가 혼합되어 있습니다. 큰 특이값 방향이 지배적이 되면 학습이 불균형해집니다.</p>
+<p>Newton-Schulz 직교화는 모든 방향의 업데이트 크기를 균일화하여:</p>
+<ul class="list">
+  <li>특이값이 큰 방향 = 과도한 업데이트 방지</li>
+  <li>특이값이 작은 방향 = 충분한 업데이트 보장</li>
+  <li>결과: 더 균일한 학습, 특히 대규모 모델에서 효과적</li>
+</ul>
+</div>
+</article></div></body></html>

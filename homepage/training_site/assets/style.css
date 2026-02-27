@@ -1,0 +1,102 @@
+
+:root{
+  --bg:#f3f0f7;--paper:#fefeff;--ink:#121118;--muted:#525261;--line:#c9c3d9;
+  --accent:#3b1775;--soft:#eee8f8;--code:#edeaf2;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;color:var(--ink);line-height:1.72;
+  font-family:"IBM Plex Sans KR","Pretendard","Noto Sans KR",sans-serif;
+  background:
+    radial-gradient(circle at 8% 8%,#ddd9ed 0%,transparent 34%),
+    radial-gradient(circle at 92% 0%,#dce1f1 0%,transparent 36%),
+    var(--bg);
+}
+.wrap{max-width:1180px;margin:26px auto;padding:0 16px}
+.paper{
+  background:var(--paper);border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 10px 24px rgba(0,0,0,.06);padding:22px;
+}
+h1,h2,h3{margin:0;font-family:"Source Serif 4","Noto Serif KR",serif;line-height:1.34}
+h1{font-size:1.95rem;margin-bottom:10px}
+h2{margin-top:22px;border-top:1px solid var(--line);padding-top:12px;font-size:1.36rem;color:#2e1763}
+h3{margin-top:16px;font-size:1.08rem;color:#1b2251}
+p{margin:8px 0}
+.muted{color:var(--muted)}
+code{
+  background:var(--code);border-radius:6px;padding:2px 6px;
+  font-family:"Cascadia Code","Consolas",monospace;font-size:.92em;
+}
+.formula{
+  border-left:4px solid var(--accent);background:#f0ecf7;border-radius:8px;
+  padding:10px 12px;margin:10px 0;overflow-x:auto;
+}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.box{border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.chip{
+  border:1px solid #978bb8;border-radius:999px;background:var(--soft);
+  color:#3b1065;padding:3px 10px;font-size:.84rem;
+}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:8px 9px;text-align:left;vertical-align:top}
+th{background:#eae5f3}
+td mjx-container[display="true"]{margin:.18em 0 !important;text-align:left !important;}
+td mjx-container{font-size:1em !important;}
+.topnav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px 0;}
+.btn{
+  display:inline-block;text-decoration:none;color:#2e1763;background:#ece8f3;
+  border:1px solid #9f8bbb;border-radius:9px;padding:7px 10px;font-size:.89rem;
+}
+.btn:hover{filter:brightness(.96)}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.tab-btn{
+  appearance:none;border:1px solid #9f8bbb;background:#eee9f5;color:#2e1763;
+  border-radius:10px;padding:7px 11px;font-size:.89rem;cursor:pointer;
+  font-family:"IBM Plex Sans KR","Pretendard","Noto Sans KR",sans-serif;
+}
+.tab-btn:hover{filter:brightness(.96)}
+.tab-btn.active{background:#3b1775;color:#fff;border-color:#3b1775}
+.tabs.mini .tab-btn{padding:5px 9px;font-size:.82rem;border-radius:9px}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.path{font-size:.87rem;color:#3a2b60}
+.small{font-size:.86rem;color:var(--muted)}
+.codebox{
+  border:1px solid var(--line);border-radius:10px;background:#f2eff6;
+  padding:10px;white-space:pre-wrap;font-family:"Cascadia Code","Consolas",monospace;
+  font-size:.83rem;max-height:320px;overflow:auto;
+}
+.list{margin:8px 0 8px 20px;padding:0}
+.list li{margin:4px 0}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin:10px 0}
+.card{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px}
+.card h3{margin:0 0 6px 0}
+.card .tag{display:inline-block;font-size:.76rem;padding:2px 7px;border-radius:6px;margin:2px 2px 2px 0}
+.tag.sdscripts{background:#d4edda;color:#155724}
+.tag.diffpipe{background:#cce5ff;color:#004085}
+.tag.diffsynth{background:#fff3cd;color:#856404}
+.filter{
+  display:grid;grid-template-columns:1fr 220px 170px;gap:8px;margin:10px 0;
+}
+.filter input,.filter select{
+  border:1px solid #baafc9;border-radius:8px;padding:8px 9px;font-size:.92rem;background:#fdfcfe;
+}
+.row-link{text-decoration:none;color:inherit}
+.badge{display:inline-block;font-size:.76rem;padding:2px 7px;border-radius:6px;margin-right:4px;font-weight:600}
+.badge.yes{background:#d4edda;color:#155724}
+.badge.no{background:#f5d5d5;color:#721c24}
+.badge.partial{background:#fff3cd;color:#856404}
+.compare-header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.compare-header .legend{display:flex;gap:12px;align-items:center}
+.compare-header .legend span{display:flex;align-items:center;gap:4px;font-size:.84rem}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.dot.sd{background:#28a745}
+.dot.dp{background:#007bff}
+.dot.ds{background:#ffc107}
+@media (max-width:980px){
+  .grid2,.grid3,.card-grid{grid-template-columns:1fr}
+  .filter{grid-template-columns:1fr}
+  table{display:block;overflow-x:auto;white-space:nowrap}
+}

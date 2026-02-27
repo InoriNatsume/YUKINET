@@ -1,0 +1,1365 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>Diffusion Training Master Docs</title><link rel='stylesheet' href='assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<div id="top"></div>
+<p class="small">문서 계층: <code>training_site/index.html</code> (최상위) → 개별 optimizer / hyperparameter / architecture 페이지</p>
+<h1>Diffusion Training Master Docs</h1>
+<p class="muted">sd-scripts · diffusion-pipe · DiffSynth-Studio 세 코드베이스의 훈련 파라미터, 옵티마이저, 아키텍처를 수학과 코드로 통합 정리합니다.</p>
+<div class="chips">
+  <span class="chip">옵티마이저: 30+</span>
+  <span class="chip">아키텍처: 25+</span>
+  <span class="chip">훈련 모드: Fine-tune / LoRA / DreamBooth / ControlNet / TI</span>
+  <span class="chip">코드베이스: 3</span>
+</div>
+<div class="compare-header">
+  <div class="legend">
+    <span><span class="dot sd"></span> sd-scripts</span>
+    <span><span class="dot dp"></span> diffusion-pipe</span>
+    <span><span class="dot ds"></span> DiffSynth-Studio</span>
+  </div>
+</div>
+
+<div class="tabs" data-tab-group="master">
+  <button class="tab-btn active" data-tab-group="master" data-tab-target="math-foundation">0) 훈련 수학 기초</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="training-loop">1) 통합 훈련 루프</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="optimizer-catalog">2) Optimizer Catalog</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="lr-scheduler">3) LR Scheduler</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="loss-catalog">4) Loss &amp; Weighting</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="arch-catalog">5) Architecture Catalog</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="hyperparams">6) Hyperparameter 브리지</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="memory-opt">7) 메모리 최적화</button>
+  <button class="tab-btn" data-tab-group="master" data-tab-target="code-map">8) 코드 매핑</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 0: 훈련 수학 기초 -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="math-foundation" class="tab-panel active" data-tab-group="master">
+<h2>0) 훈련 수학 기초 — Diffusion Training의 측도론적 기반</h2>
+<p>추론(sampling)이 역방향 SDE/ODE를 풀어 $p_\text{data}$를 복원하는 일이라면, <strong>훈련</strong>은 모델 $\theta$를 최적화하여 정방향 확산 과정의 score/velocity를 학습하는 과정입니다. 각 섹션에서는 수학적 정의와 함께 <strong>왜 그 수식이 필요한지(모티베이션)</strong>, 그리고 그것이 <strong>실제 코드의 어떤 줄에 대응하는지</strong>를 함께 설명합니다.</p>
+
+<div class="tabs mini" data-tab-group="math-sub">
+  <button class="tab-btn active" data-tab-group="math-sub" data-tab-target="math-a">A. 정방향 확산</button>
+  <button class="tab-btn" data-tab-group="math-sub" data-tab-target="math-b">B. 훈련 목적함수</button>
+  <button class="tab-btn" data-tab-group="math-sub" data-tab-target="math-c">C. Flow Matching</button>
+  <button class="tab-btn" data-tab-group="math-sub" data-tab-target="math-d">D. 최적화 이론</button>
+  <button class="tab-btn" data-tab-group="math-sub" data-tab-target="math-e">E. 기호 사전</button>
+</div>
+
+<section id="math-a" class="tab-panel active" data-tab-group="math-sub">
+<h3>A. 정방향 확산 과정 (Forward Process)</h3>
+
+<div class="box" style="border-left:3px solid var(--accent);margin-bottom:16px">
+<h4 style="margin-top:0">🎯 모티베이션: 왜 데이터에 노이즈를 더하는가?</h4>
+<p><strong>수학적 관점:</strong> 우리의 목표는 복잡한 데이터 분포 $p_\text{data}(x)$를 <em>다루기 쉬운</em> 분포 $\mathcal{N}(0,I)$로 변환하는 매핑을 학습하는 것입니다. 직접 $p_\text{data}\to\mathcal{N}$을 배우는 것은 매우 어렵지만, 점진적으로 노이즈를 추가하여 $x_0\to x_1\to\cdots\to x_T\approx\mathcal{N}$으로 변환하면 각 스텝의 역변환 $p(x_{t-1}|x_t)$이 가우시안으로 근사 가능해집니다 (Feller, 1949).</p>
+<p><strong>훈련 관점:</strong> 정방향 확산은 모델이 <em>풀어야 할 문제</em>를 정의합니다. $x_0$(원본 이미지)와 $\epsilon$(순수 노이즈) 사이의 모든 노이즈 레벨에서 모델이 "무엇이 신호이고 무엇이 노이즈인지" 구분하도록 학습시킵니다. 다양한 노이즈 수준을 경험해야 저노이즈(세밀한 디테일)부터 고노이즈(전체 구조)까지 모두 생성할 수 있습니다.</p>
+</div>
+
+<h4>DDPM 이산 정방향 — 마르코프 체인</h4>
+<p>DDPM (Ho et al., 2020)은 $T$개의 이산 스텝으로 구성된 마르코프 체인으로 정방향 과정을 정의합니다:</p>
+<div class="formula">$$q(x_{1:T}|x_0)=\prod_{t=1}^T q(x_t|x_{t-1}),\qquad q(x_t|x_{t-1})=\mathcal{N}(x_t;\sqrt{1-\beta_t}\,x_{t-1},\beta_t I)$$</div>
+<p><strong>핵심 성질:</strong> 마르코프 체인의 누적 곱 덕분에 중간 스텝을 거치지 않고 <em>임의의 $t$에서 직접 샘플</em>할 수 있습니다:</p>
+<div class="formula">$$q(x_t|x_0)=\mathcal{N}\!\left(x_t;\;\sqrt{\bar\alpha_t}\,x_0,\;(1-\bar\alpha_t)I\right)$$</div>
+<div class="formula">$$\boxed{x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\epsilon,\quad\epsilon\sim\mathcal{N}(0,I)}$$</div>
+<p>여기서 $\bar\alpha_t=\prod_{s=1}^t(1-\beta_s)$는 누적 신호 보존율이며, $\beta_t$는 노이즈 스케줄(linear, cosine 등)로 제어합니다.</p>
+
+<div class="codebox"># sd-scripts: library/train_util.py — DDPM 정방향 과정 구현
+# α_bar 계산
+alphas = 1.0 - betas                     # α_t = 1 - β_t
+alphas_cumprod = torch.cumprod(alphas, dim=0)  # ᾱ_t = Π(α_s)
+
+# 임의 timestep t에서 noisy sample 생성
+sqrt_alpha = alphas_cumprod[t] ** 0.5          # √ᾱ_t (signal coefficient)
+sqrt_one_minus_alpha = (1 - alphas_cumprod[t]) ** 0.5  # √(1-ᾱ_t) (noise coefficient)
+x_t = sqrt_alpha * x_0 + sqrt_one_minus_alpha * noise  # 정방향 확산 핵심 한 줄</div>
+
+<p><strong>직관:</strong> $t$가 증가하면 $\bar\alpha_t\to 0$이므로 $x_t\to\epsilon$. 즉 원본 신호가 점진적으로 사라지고 순수 노이즈만 남습니다. $t=0$이면 $x_0$ 그대로, $t=T$이면 거의 순수 가우시안.</p>
+
+<h4>연속 시간 SDE 형태</h4>
+<p>이산 과정을 연속으로 확장하면 <strong>확률 미분 방정식(SDE)</strong>으로 표현됩니다 (Song et al., 2021):</p>
+<div class="formula">$$dx=f(x,t)\,dt+g(t)\,dW_t$$</div>
+<p>DDPM의 경우 VP-SDE(Variance Preserving):</p>
+<div class="formula">$$dx=-\frac{\beta(t)}{2}x\,dt+\sqrt{\beta(t)}\,dW_t$$</div>
+<p class="small">$f(x,t)=-\frac{\beta(t)}{2}x$는 drift(신호 감쇠), $g(t)=\sqrt{\beta(t)}$는 diffusion(노이즈 주입). Anderson의 역시간 SDE 정리에 의해 역방향 SDE는 <strong>score function</strong> $\nabla_x\log p_t(x)$만 알면 풀 수 있고, 이것이 훈련의 목표입니다.</p>
+
+<h4>Flow Matching 연속 정방향 — Optimal Transport Path</h4>
+<div class="box" style="border-left:3px solid #007bff;margin-bottom:16px">
+<p><strong>모티베이션:</strong> DDPM의 SDE 경로는 곡선이라 많은 추론 스텝이 필요합니다. Flow Matching (Lipman et al., 2022)은 $x_0$에서 $\epsilon$까지의 <strong>직선(optimal transport) 경로</strong>를 사용하여 더 효율적인 학습과 빠른 추론을 가능하게 합니다. 직선 경로는 <em>교차하지 않아</em> 학습이 안정적이고, 적은 NFE(Number of Function Evaluations)로 고품질 샘플을 생성합니다.</p>
+</div>
+<div class="formula">$$\boxed{x_t=(1-t)\,x_0+t\,\epsilon,\quad t\in[0,1]}$$</div>
+<div class="formula">$$v_t=\frac{dx_t}{dt}=\epsilon-x_0 \quad\text{(상수 velocity — 경로가 직선)}$$</div>
+<p><strong>ODE 형태:</strong> Flow Matching은 SDE가 아닌 <strong>확률 흐름 ODE</strong>를 사용합니다:</p>
+<div class="formula">$$\frac{dx_t}{dt}=v_\theta(x_t,t)\qquad\text{(학습된 velocity field)}$$</div>
+
+<div class="codebox"># sd-scripts: flux_train.py — Flow Matching 정방향
+# t는 [0,1] 범위의 연속 시간, sigmoid/logit-normal 등으로 샘플링
+noisy_x = (1.0 - t) * x_0 + t * noise   # 직선 보간 (linear interpolation)
+target = noise - x_0                      # velocity target (상수!)
+
+# diffusion-pipe: models/flux.py — 동일 구조
+x_t = (1 - sigma) * latent + sigma * noise  # sigma = t
+velocity_target = noise - latent
+
+# DiffSynth-Studio: diffsynth/trainers/text_to_image.py
+noisy_latent = (1 - t) * latent + t * noise
+loss = F.mse_loss(model_pred, noise - latent)  # velocity matching</div>
+
+<h4>DDPM vs Flow Matching 정방향 비교</h4>
+<table>
+  <thead><tr><th>특성</th><th>DDPM</th><th>Flow Matching</th></tr></thead>
+  <tbody>
+    <tr><td><strong>수학적 프레임워크</strong></td><td>이산 마르코프 체인 / VP-SDE</td><td>연속 ODE / Optimal Transport</td></tr>
+    <tr><td><strong>경로 형태</strong></td><td>곡선 (variance preserving)</td><td>직선 (constant velocity)</td></tr>
+    <tr><td><strong>보간 공식</strong></td><td>$\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\epsilon$</td><td>$(1-t)x_0+t\epsilon$</td></tr>
+    <tr><td><strong>필요 추론 스텝</strong></td><td>20~50+ (DDPM/DDIM)</td><td>1~4 (Euler)</td></tr>
+    <tr><td><strong>사용 모델</strong></td><td>SD 1.x, SDXL</td><td>Flux, SD3, Wan, Lumina</td></tr>
+    <tr><td><strong>코드 위치 (sd-scripts)</strong></td><td><code>train_util.py → add_noise()</code></td><td><code>flux_train.py</code> 루프 내부</td></tr>
+  </tbody>
+</table>
+
+<h4>SNR (Signal-to-Noise Ratio) — 모든 가중치 기법의 기초</h4>
+<div class="formula">$$\text{SNR}(t)=\frac{\bar\alpha_t}{1-\bar\alpha_t}=\frac{\text{signal power}}{\text{noise power}}$$</div>
+
+<div class="box" style="border-left:3px solid #ffc107;margin-bottom:16px">
+<p><strong>왜 SNR이 중요한가?</strong> 단순 MSE 손실 $\|\epsilon_\theta-\epsilon\|^2$을 사용하면, 각 timestep에서의 기여도가 <em>암묵적으로</em> SNR에 의존합니다. 구체적으로:</p>
+<div class="formula">$$\mathcal{L}_\epsilon=\mathbb{E}_t\left[\text{SNR}(t)\cdot\|x_\theta-x_0\|^2\right]$$</div>
+<p>높은 SNR($t\approx 0$, 거의 깨끗한 이미지)에서 손실이 과도하게 커지면 모델이 "이미 충분히 깨끗한 이미지의 미세한 차이"에 집중하고, 정작 중요한 구조적 학습(높은 $t$)을 소홀히 합니다. <strong>Min-SNR-γ</strong>, <strong>debiased estimation</strong> 등은 이 불균형을 보정합니다.</p>
+</div>
+
+<div class="codebox"># sd-scripts: library/custom_train_functions.py — SNR 계산
+def compute_snr(timesteps, noise_scheduler):
+    alphas_cumprod = noise_scheduler.alphas_cumprod
+    sqrt_alphas_cumprod = alphas_cumprod**0.5
+    sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod)**0.5
+    alpha = sqrt_alphas_cumprod[timesteps]             # signal coeff
+    sigma = sqrt_one_minus_alphas_cumprod[timesteps]   # noise coeff
+    snr = (alpha / sigma) ** 2                         # SNR(t) = (ᾱ/(1-ᾱ))
+    return snr
+
+# Min-SNR-γ 가중치 적용
+snr = compute_snr(timesteps, scheduler)
+msnr_weight = torch.clamp(snr, max=gamma) / snr       # min(SNR, γ) / SNR
+loss = loss * msnr_weight                              # 고SNR timestep 억제</div>
+
+<h4>Flow Matching에서의 SNR 해석</h4>
+<p>Flow Matching에서는 $\text{signal coeff}=(1-t)$, $\text{noise coeff}=t$이므로:</p>
+<div class="formula">$$\text{SNR}_\text{FM}(t)=\frac{(1-t)^2}{t^2}=\left(\frac{1-t}{t}\right)^2$$</div>
+<p class="small">$t=0$에서 $\text{SNR}\to\infty$ (순수 신호), $t=1$에서 $\text{SNR}\to 0$ (순수 노이즈), $t=0.5$에서 $\text{SNR}=1$ (균형점). 이 대칭적 구조가 Flow Matching의 logit-normal 샘플링(중앙 $t\approx 0.5$ 강조)의 이론적 배경입니다.</p>
+</section>
+
+<section id="math-b" class="tab-panel" data-tab-group="math-sub">
+<h3>B. 훈련 목적함수 (Training Objectives)</h3>
+
+<div class="box" style="border-left:3px solid var(--accent);margin-bottom:16px">
+<h4 style="margin-top:0">🎯 모티베이션: ELBO에서 실용적 손실까지</h4>
+<p><strong>수학적 출발점:</strong> 생성 모델의 이론적 목표는 데이터의 로그 우도 $\log p_\theta(x_0)$를 최대화하는 것입니다. 변분 하한(ELBO)을 전개하면:</p>
+<div class="formula">$$\log p_\theta(x_0)\geq\underbrace{-D_\text{KL}(q(x_T|x_0)\|p(x_T))}_{\text{prior matching (≈0)}}+\sum_{t=2}^T\underbrace{-D_\text{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))}_{\mathcal{L}_{t-1}\text{: denoising matching}}+\underbrace{\log p_\theta(x_0|x_1)}_{\text{reconstruction}}$$</div>
+<p>각 $\mathcal{L}_{t-1}$은 두 가우시안 사이의 KL divergence이므로 <strong>closed-form MSE</strong>로 환원됩니다. 이것이 "왜 MSE 손실로 노이즈를 예측하는가"의 수학적 근거입니다.</p>
+<p><strong>훈련 관점:</strong> Ho et al. (2020)은 ELBO의 가중 KL 대신 <em>단순화된 목적함수</em> $\|\epsilon_\theta(x_t,t)-\epsilon\|^2$이 실제로 더 좋은 샘플 품질을 낸다는 것을 실험적으로 보였습니다. 이 "단순 목적함수"가 현재 모든 코드베이스의 출발점입니다.</p>
+</div>
+
+<h4>세 가지 예측 유형과 그 동등성</h4>
+<p>모델이 예측하는 대상은 ε, v, x₀ 각각 다르지만, 수학적으로 <strong>서로 변환 가능</strong>합니다:</p>
+
+<table>
+  <thead><tr><th>예측 유형</th><th>목적함수</th><th>타겟</th><th>모델</th><th>코드 위치</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>ε-prediction</strong></td>
+      <td>$$\mathcal{L}_\epsilon=\mathbb{E}_{t,x_0,\epsilon}\left[\|\epsilon_\theta(x_t,t)-\epsilon\|^2\right]$$</td>
+      <td>$\epsilon$ (noise)</td>
+      <td>SD 1.x, SDXL</td>
+      <td><code>train_util.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>v-prediction</strong></td>
+      <td>$$\mathcal{L}_v=\mathbb{E}_{t,x_0,\epsilon}\left[\|v_\theta(x_t,t)-v_t\|^2\right]$$</td>
+      <td>$v_t=\sqrt{\bar\alpha_t}\epsilon-\sqrt{1-\bar\alpha_t}x_0$</td>
+      <td>SD 2.x, SDXL</td>
+      <td><code>train_util.py</code></td>
+    </tr>
+    <tr>
+      <td><strong>Flow Matching</strong></td>
+      <td>$$\mathcal{L}_\text{FM}=\mathbb{E}_{t,x_0,\epsilon}\left[\|v_\theta(x_t,t)-(\epsilon-x_0)\|^2\right]$$</td>
+      <td>$\epsilon-x_0$ (velocity)</td>
+      <td>Flux, SD3, Wan</td>
+      <td>각 모델 train 파일</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box" style="border-left:3px solid #28a745;margin-bottom:16px">
+<h4 style="margin-top:0">변환 관계 — 하나를 알면 모두 안다</h4>
+<p>$x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\epsilon$에서 각 quantity는 상호 변환됩니다:</p>
+<div class="formula">$$\epsilon=\frac{x_t-\sqrt{\bar\alpha_t}\,x_0}{\sqrt{1-\bar\alpha_t}},\qquad x_0=\frac{x_t-\sqrt{1-\bar\alpha_t}\,\epsilon}{\sqrt{\bar\alpha_t}}$$</div>
+<div class="formula">$$v_t=\sqrt{\bar\alpha_t}\,\epsilon-\sqrt{1-\bar\alpha_t}\,x_0=\frac{\sqrt{\bar\alpha_t}\,x_t - x_0}{\sqrt{1-\bar\alpha_t}}$$</div>
+<p><strong>실용적 의미:</strong> sd-scripts의 <code>--v_parameterization</code> 플래그 하나로 ε-prediction ↔ v-prediction 전환. 내부적으로 같은 UNet이 다른 타겟을 학습합니다.</p>
+</div>
+
+<div class="codebox"># sd-scripts: library/train_util.py — 예측 유형에 따른 타겟 계산
+if args.v_parameterization:
+    # v-prediction: v = √ᾱ·ε − √(1−ᾱ)·x₀
+    target = noise_scheduler.get_velocity(latents, noise, timesteps)
+else:
+    # ε-prediction: target = 원본 노이즈
+    target = noise
+
+# sd-scripts: flux_train.py — Flow Matching velocity
+target = noise - latents  # velocity = ε − x₀ (constant!)
+
+# DiffSynth-Studio: trainers/text_to_image.py
+# flow matching에서 target은 항상 noise - latent
+loss = F.mse_loss(model_pred, noise - latent, reduction="none")</div>
+
+<h4>왜 v-prediction이 등장했는가?</h4>
+<div class="box" style="border-left:3px solid #007bff">
+<p><strong>수학적 이유:</strong> ε-prediction은 $t\to 0$ (거의 깨끗)에서 "이미 한 일"을 반복하고, $t\to T$ (순수 노이즈)에서 요구하는 예측이 과도합니다. v-prediction은 $\sqrt{\bar\alpha_t}$와 $\sqrt{1-\bar\alpha_t}$의 <em>각도 보간</em>으로 해석되어, SNR 스펙트럼 전체에서 <strong>손실 스케일이 더 균일</strong>합니다:</p>
+<div class="formula">$$\mathcal{L}_v \propto \mathbb{E}_t\left[\frac{\text{SNR}(t)}{\text{SNR}(t)+1}\cdot\|x_\theta-x_0\|^2\right]$$</div>
+<p class="small">$\text{SNR}(t)/(\text{SNR}(t)+1)$는 [0,1]로 바운드되어 있어, ε-prediction의 $\text{SNR}(t)$ 가중치처럼 폭발하지 않습니다.</p>
+<p><strong>훈련 관점:</strong> v-prediction은 <code>--zero_terminal_snr</code>과 함께 사용하면 완전한 검은 이미지를 생성할 수 있게 해줍니다. ε-prediction에서는 $t=T$에서도 잔여 신호가 남아 완전히 검은/빈 이미지를 생성하지 못하는 문제가 있습니다.</p>
+</div>
+
+<h3>손실 변형 — 기본 MSE를 개선하는 기법들</h3>
+
+<div class="box" style="border-left:3px solid #ffc107;margin-bottom:12px">
+<p><strong>왜 손실을 변형하는가?</strong> 단순 MSE는 모든 timestep을 동등하게 취급하지만, 실제로 timestep별 학습 난이도와 시각적 중요도가 다릅니다. 너무 쉬운 timestep(저노이즈)에 과적합하거나, 이상치(outlier) gradient가 학습을 불안정하게 만들 수 있습니다.</p>
+</div>
+
+<table>
+  <thead><tr><th>기법</th><th>수식</th><th>동기 &amp; 효과</th><th>코드베이스</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Min-SNR-γ</strong></td>
+      <td>$$w(t)=\frac{\min(\text{SNR}(t),\gamma)}{\text{SNR}(t)}$$</td>
+      <td>$\gamma=5$가 기본. SNR > γ인 저노이즈 구간에서 가중치를 $\gamma/\text{SNR}<1$로 클리핑하여 "이미 쉬운 문제"에 과도한 그래디언트가 흐르는 것을 방지. <strong>Pareto 최적</strong>에 근접하는 가중치임이 이론적으로 증명됨 (Hang et al., 2023).</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+    <tr>
+      <td><strong>Debiased Estimation</strong></td>
+      <td>$$w_\epsilon(t)=\frac{1}{\sqrt{\text{SNR}(t)}}$$$$w_v(t)=\frac{1}{\text{SNR}(t)+1}$$</td>
+      <td>단순 ε-prediction MSE는 $x_0$ 복원 관점에서 SNR에 비례하는 <em>편향(bias)</em>을 가지고 있음. 이 가중치로 편향을 제거하면 모든 timestep에서 $x_0$ 복원 능력이 균등해짐.</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+    <tr>
+      <td><strong>Pseudo-Huber</strong></td>
+      <td>$$\mathcal{L}_\text{Huber}=\sqrt{(x-y)^2+c^2}-c$$</td>
+      <td>$c\to 0$이면 L1(중간값), $c\to\infty$이면 L2(평균값)으로 수렴. 이상치(outlier) 데이터에서 gradient가 폭발하는 것을 방지. 정밀 디테일보다 전체적 일관성이 중요한 학습 초반에 유리.</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+    <tr>
+      <td><strong>Bell-shaped 가중치</strong></td>
+      <td>$$w(t)=\exp\!\left(-2\left(\frac{t-\mu}{\sigma}\right)^2\right)$$</td>
+      <td>DiffSynth의 경험적 발견: 중간 timestep($t\approx 500/1000$)이 구조와 디테일의 "교차점"이므로, 가우시안 형태로 중앙부를 강조하면 전체적 품질이 향상합니다.</td>
+      <td><span class="tag diffsynth">DiffSynth</span></td>
+    </tr>
+    <tr>
+      <td><strong>Masked Loss</strong></td>
+      <td>$$\mathcal{L}=\frac{\sum_{i,j}m_{ij}\cdot\ell_{ij}}{\sum_{i,j}m_{ij}}$$</td>
+      <td>특정 피사체/영역만 학습하고 배경은 무시. $m_{ij}\in\{0,1\}$는 공간 마스크. 캐릭터 LoRA 학습에서 배경 과적합을 방지하는 핵심 도구.</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="codebox"># sd-scripts: library/custom_train_functions.py — Min-SNR-γ 구현
+def apply_snr_weight(loss, timesteps, noise_scheduler, gamma, v_prediction):
+    snr = compute_snr(timesteps, noise_scheduler)       # SNR(t)
+    if v_prediction:
+        snr += 1  # v-prediction: SNR 보정 (SNR+1 가중치)
+    # clamp & normalize
+    msnr = torch.clamp(snr, max=gamma)                  # min(SNR, γ)
+    weight = msnr / snr                                  # → 1.0 if SNR≤γ, else γ/SNR < 1
+    loss = loss * weight                                 # timestep별 재가중
+    return loss
+
+# Pseudo-Huber (sd-scripts)
+if loss_type == "huber":
+    loss = torch.sqrt((pred - target)**2 + huber_c**2) - huber_c
+elif loss_type == "smooth_l1":
+    loss = F.smooth_l1_loss(pred, target, reduction="none")
+else:  # default L2
+    loss = F.mse_loss(pred, target, reduction="none")
+
+# DiffSynth: diffsynth/trainers/text_to_image.py — Bell-shaped weight
+# weight = torch.exp(-2 * ((timestep - 500) / 1000) ** 2)
+# loss = loss * weight.view(-1, 1, 1, 1)</div>
+</section>
+
+<section id="math-c" class="tab-panel" data-tab-group="math-sub">
+<h3>C. Flow Matching — Timestep 샘플링과 가중치 전략</h3>
+
+<div class="box" style="border-left:3px solid var(--accent);margin-bottom:16px">
+<h4 style="margin-top:0">🎯 모티베이션: 왜 timestep 분포가 중요한가?</h4>
+<p><strong>수학적 관점:</strong> Flow Matching의 훈련 목적함수 $\mathcal{L}=\mathbb{E}_{t\sim p(t)}[w(t)\|v_\theta-v_\text{target}\|^2]$에서, $t$의 샘플링 분포 $p(t)$는 <em>암묵적 가중치(implicit weighting)</em>로 작용합니다. 균일 분포 $p(t)=U[0,1]$을 사용하면 모든 노이즈 수준에 동등한 학습 예산을 배분하지만, 실제로는 특정 $t$ 구간이 생성 품질에 불균등하게 기여합니다.</p>
+<p><strong>훈련 관점:</strong> $t\approx 0$ (거의 깨끗한 이미지)에서의 velocity 예측은 "거의 0에 가까운 값을 예측"하는 쉬운 과제이고, $t\approx 1$ (순수 노이즈)에서는 "전체 이미지를 한 번에 예측"해야 하는 극도로 어려운 과제입니다. 중간 영역($t\approx 0.3\sim 0.7$)이 구조와 세부 사항의 균형점으로, 여기에 학습 예산을 집중하면 효율이 극대화됩니다.</p>
+</div>
+
+<h4>Timestep 샘플링 분포 상세 비교</h4>
+<table>
+  <thead><tr><th>전략</th><th>수식</th><th>코드 플래그</th><th>직관 &amp; 사용 사례</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Uniform</strong></td>
+      <td>$$t\sim U[0,1]$$</td>
+      <td><code>timestep_sampling=uniform</code></td>
+      <td>가장 단순. 편향 없지만 양 극단에서 학습 효율 낭비. 베이스라인용.</td>
+    </tr>
+    <tr>
+      <td><strong>Logit-Normal</strong></td>
+      <td>$$t=\sigma(\mu+s\cdot z),\;z\sim\mathcal{N}(0,1)$$<br>$$p(t)\propto\frac{1}{t(1-t)}\exp\!\left(-\frac{(\text{logit}(t)-\mu)^2}{2s^2}\right)$$</td>
+      <td><code>weighting_scheme=logit_normal</code></td>
+      <td>SD3 논문의 핵심 기여. $\mu=0,s=1$이면 중앙($t\approx0.5$) 집중. $\text{logit}(t)=\ln(t/(1-t))$를 정규 분포로 만들어 양 극단을 자연스럽게 억제.</td>
+    </tr>
+    <tr>
+      <td><strong>Sigmoid</strong></td>
+      <td>$$t=\sigma(s\cdot z),\;z\sim\mathcal{N}(0,1)$$</td>
+      <td><code>timestep_sampling=sigmoid</code></td>
+      <td>Logit-Normal의 $\mu=0$ 특수 경우. Flux 기본 설정. $s$가 클수록 더 넓게 퍼짐.</td>
+    </tr>
+    <tr>
+      <td><strong>Mode</strong></td>
+      <td>$$t=1-u-s\cdot(\cos^2(\pi u/2)-1+u)$$<br>$$u\sim U[0,1]$$</td>
+      <td><code>weighting_scheme=mode</code></td>
+      <td>코사인 변환으로 logit-normal의 <em>최빈값(mode)</em> 주변에 집중. logit-normal보다 더 sharp한 피크.</td>
+    </tr>
+    <tr>
+      <td><strong>CosMap</strong></td>
+      <td>$$t=1-\frac{1}{\tan(\pi u/2)+1}$$<br>$$u\sim U[0,1]$$</td>
+      <td><code>weighting_scheme=cosmap</code></td>
+      <td>탄젠트 변환으로 코사인 스케줄을 Flow Matching에 이식. 코사인 noise schedule의 "균등 SNR 변화율" 효과를 재현.</td>
+    </tr>
+    <tr>
+      <td><strong>Flux Shift</strong></td>
+      <td>$$\mu=0.5+\frac{H\times W}{256^2}\cdot 1.15$$<br>$$t=\sigma(\mu+s\cdot z)$$</td>
+      <td><code>timestep_sampling=flux_shift</code></td>
+      <td><strong>해상도 적응형.</strong> 큰 이미지는 더 많은 노이즈를 필요로 하므로(content 밀도 ↑), $\mu$를 키워 높은 $t$ 쪽을 더 샘플. Flux의 핵심 설계.</td>
+    </tr>
+    <tr>
+      <td><strong>Sigma-sqrt</strong></td>
+      <td>$$w(\sigma)=\sigma^{-2}$$</td>
+      <td><code>weighting_scheme=sigma_sqrt</code></td>
+      <td>EDM-style 가중치. 낮은 $\sigma$(고SNR)에서 가중치 증가. 세밀한 디테일 학습 강조.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>수학적 통합: 샘플링 분포 ↔ 손실 가중치 = 동일 효과</h4>
+<div class="box" style="border-left:3px solid #28a745;margin-bottom:12px">
+<p><strong>핵심 정리:</strong> timestep 샘플링 분포를 바꾸는 것과 손실 가중치를 바꾸는 것은 수학적으로 동치입니다:</p>
+<div class="formula">$$\mathbb{E}_{t\sim p(t)}\left[\|v_\theta-v\|^2\right]=\mathbb{E}_{t\sim U[0,1]}\left[\frac{p(t)}{1}\cdot\|v_\theta-v\|^2\right]=\mathbb{E}_{t\sim U[0,1]}\left[w(t)\cdot\|v_\theta-v\|^2\right]$$</div>
+<p>즉, logit-normal 분포에서 $t$를 샘플하는 것과, uniform에서 샘플한 뒤 logit-normal 밀도로 가중치를 곱하는 것은 <em>동일한 gradient 기대값</em>을 줍니다. 실전에서는 sampling 방식이 variance가 더 낮아 선호됩니다.</p>
+</div>
+
+<div class="codebox"># sd-scripts: library/flux_train_utils.py — Timestep 샘플링 구현
+def get_timesteps(args, batch_size, device):
+    if args.timestep_sampling == "uniform":
+        t = torch.rand(batch_size, device=device)
+    
+    elif args.timestep_sampling == "sigmoid":
+        # Sigmoid: t = σ(s·z), z ~ N(0,1)
+        t = torch.sigmoid(args.sigmoid_scale * torch.randn(batch_size, device=device))
+    
+    elif args.timestep_sampling == "flux_shift":
+        # 해상도 적응: μ = 0.5 + (H×W/256²)·1.15
+        mu = 0.5 + (height * width / 256**2) * 1.15
+        t = torch.sigmoid(mu + args.sigmoid_scale * torch.randn(batch_size, device=device))
+    
+    elif args.timestep_sampling == "logit_normal":
+        # logit(t) ~ N(μ, s²) → t = σ(μ + s·z)
+        t = torch.sigmoid(args.logit_mean + args.logit_std * torch.randn(batch_size, device=device))
+    
+    return t
+
+# diffusion-pipe: 모델별 내부 구현이 다르나 원리 동일
+# DiffSynth-Studio: FlowMatchScheduler 내에서 bell-shaped 분포 사용</div>
+
+<h4>Discrete Flow Shift — 추론용 $\sigma$ 변환과 훈련의 관계</h4>
+<div class="formula">$$\sigma'=\frac{s\cdot\sigma}{1+(s-1)\sigma},\qquad s=\text{discrete\_flow\_shift}$$</div>
+<p><strong>수학적 의미:</strong> 이 비선형 변환은 $\sigma\in[0,1]$을 재분배합니다. $s>1$이면 고노이즈 방향으로 스케줄이 시프트되고 $s<1$이면 저노이즈 방향. <strong>훈련 시 이 shift를 반영</strong>해야 추론과 일관성이 유지됩니다.</p>
+<div class="codebox"># sd-scripts: 추론 시 sigma shift 적용 (학습 시에도 적용 가능)
+# --discrete_flow_shift=3.0 (Flux dev 기본), 1.0 (schnell)
+sigmas_shifted = shift * sigmas / (1 + (shift - 1) * sigmas)
+# 직관: shift=3이면 낮은 sigma가 더 높은 값으로 밀려남 → 더 많은 denoising 스텝</div>
+
+<div class="formula">
+$$\boxed{\text{일반 Flow Matching 손실: }\quad\mathcal{L}=\mathbb{E}_{t\sim p(t)}\left[w(t)\|v_\theta(x_t,t,c)-(\epsilon-x_0)\|^2\right]}$$
+</div>
+</section>
+
+<section id="math-d" class="tab-panel" data-tab-group="math-sub">
+<h3>D. 최적화 이론 — Optimizer의 수학과 확산 훈련에서의 의미</h3>
+
+<div class="box" style="border-left:3px solid var(--accent);margin-bottom:16px">
+<h4 style="margin-top:0">🎯 모티베이션: 왜 옵티마이저 선택이 중요한가?</h4>
+<p><strong>수학적 관점:</strong> 확산 모델의 손실 함수 $\mathcal{L}(\theta)$는 비볼록(non-convex)이며 수억~수십억 차원의 파라미터 공간에서 정의됩니다. SGD는 이런 고차원 비볼록 최적화에서 <em>안장점(saddle point)</em>에 갇히기 쉽고, 차원별 곡률(curvature)이 크게 다른 <strong>ill-conditioned</strong> 문제에서 수렴이 느립니다.</p>
+<p><strong>훈련 관점:</strong> 확산 모델은 데이터셋이 크고 학습률에 민감합니다. AdamW의 적응적 학습률은 레이어별로 자동 스케일링하여 이를 완화합니다. 하지만 12B+ 파라미터 모델에서 AdamW의 8N 바이트 상태 메모리(m, v 각각 FP32)는 VRAM의 주요 병목이 되어, 8-bit 양자화, 상태 분해(Adafactor), 상태 없는 옵티마이저(Lion) 등이 필요합니다.</p>
+</div>
+
+<h4>SGD + Momentum — 기초와 한계</h4>
+<div class="grid2">
+  <div class="box">
+    <h4>Vanilla SGD</h4>
+    <div class="formula">$$\theta_{t+1}=\theta_t-\eta\,g_t,\qquad g_t=\nabla_\theta\mathcal{L}(\theta_t)$$</div>
+    <p class="small"><strong>문제:</strong> 곡률이 큰 방향(가파른 골짜기)에서 진동하고, 평평한 방향에서는 느리게 이동. 확산 모델에서 단독 사용은 거의 없음.</p>
+  </div>
+  <div class="box">
+    <h4>+ Momentum (Heavy Ball)</h4>
+    <div class="formula">$$m_t=\beta m_{t-1}+g_t$$</div>
+    <div class="formula">$$\theta_{t+1}=\theta_t-\eta\,m_t$$</div>
+    <p class="small">$\beta=0.9$: 과거 10스텝의 그래디언트를 지수 평균. 진동 억제 + 평평한 방향 가속. Nesterov 변형: $g_t=\nabla_\theta\mathcal{L}(\theta_t-\eta\beta m_{t-1})$ ("먼저 점프 후 보정")</p>
+  </div>
+</div>
+
+<div class="codebox"># diffusion-pipe: GenericOptim 에서 SGD는 Muon의 fallback으로 사용
+# 1D/bias 텐서에 AdamW, 2D+ 텐서에 Muon 적용
+# sd-scripts: --optimizer_type=SGDNesterov --optimizer_args momentum=0.9</div>
+
+<h4>AdamW — 확산 훈련의 표준</h4>
+<div class="box" style="border-left:3px solid #28a745;margin-bottom:12px">
+<p><strong>왜 Adam 계열이 표준인가?</strong></p>
+<p>1) <strong>적응적 학습률:</strong> $1/\sqrt{\hat v_t}$이 각 파라미터의 "평균 그래디언트 크기"의 역수 역할을 하여, 큰 그래디언트를 받는 파라미터는 작게, 작은 그래디언트를 받는 파라미터는 크게 업데이트합니다. UNet/DiT의 서로 다른 레이어에서 자연스러운 학습률 적응이 일어납니다.</p>
+<p>2) <strong>분산 환경 안정성:</strong> EMA 기반 통계가 미니배치 노이즈를 평활화하여 분산 학습(multi-GPU)에서도 안정적입니다.</p>
+</div>
+
+<div class="formula">$$\text{1차 모멘트 (평균): } m_t=\beta_1 m_{t-1}+(1-\beta_1)g_t$$</div>
+<div class="formula">$$\text{2차 모멘트 (분산): } v_t=\beta_2 v_{t-1}+(1-\beta_2)g_t^2$$</div>
+<div class="formula">$$\text{편향 보정: } \hat m_t=\frac{m_t}{1-\beta_1^t},\quad \hat v_t=\frac{v_t}{1-\beta_2^t}$$</div>
+<div class="formula">$$\boxed{\theta_{t+1}=\theta_t-\eta\left(\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}+\lambda\theta_t\right)}$$</div>
+
+<p><strong>AdamW vs Adam+L2:</strong> 원래 Adam에서 $\lambda\|theta\|^2$를 손실에 추가하면 적응적 학습률과 상호작용하여 weight decay 효과가 왜곡됩니다. AdamW는 $\lambda\theta_t$를 <strong>그래디언트 스텝과 독립적으로</strong> 빼서 이 문제를 해결합니다.</p>
+
+<div class="codebox"># 모든 코드베이스의 기본 옵티마이저
+# sd-scripts: library/train_util.py
+optimizer = torch.optim.AdamW(
+    params, lr=args.learning_rate,
+    betas=(args.adam_beta1, args.adam_beta2),  # (0.9, 0.999) default
+    weight_decay=args.adam_weight_decay,        # 0.01 default
+    eps=args.adam_epsilon                       # 1e-8 default
+)
+# 메모리: 파라미터 N개 → m(FP32)=4N + v(FP32)=4N = 8N bytes 추가
+
+# diffusion-pipe: configs/*.toml
+[optimizer]
+type = "adamw"
+lr = 1e-4
+betas = [0.9, 0.999]
+weight_decay = 0.01
+
+# DiffSynth-Studio: torch.optim.AdamW 직접 사용
+optimizer = torch.optim.AdamW(trainable_params, lr=1e-4, weight_decay=1e-2)</div>
+
+<h4>Lion — 메모리 효율적 대안</h4>
+<div class="grid2">
+  <div class="box">
+    <div class="formula">$$u_t=\text{sign}\!\left(\beta_1 m_{t-1}+(1-\beta_1)g_t\right)$$</div>
+    <div class="formula">$$\theta_{t+1}=\theta_t-\eta(u_t+\lambda\theta_t)$$</div>
+    <div class="formula">$$m_t=\beta_2 m_{t-1}+(1-\beta_2)g_t$$</div>
+  </div>
+  <div class="box">
+    <p><strong>수학적 핵심:</strong> 업데이트가 $\text{sign}(\cdot)\in\{-1,+1\}$이므로 모든 파라미터가 <em>동일한 크기</em>로 업데이트됩니다. $v_t$ 상태가 없어 메모리 4N (vs AdamW 8N).</p>
+    <p><strong>훈련 관점:</strong> Lion은 lr을 AdamW의 3~10배 작게 (예: 1e-5 → 3e-6), weight_decay를 3~10배 크게 (예: 0.01 → 0.1) 설정해야 합니다. 부호 기반이라 그래디언트 크기 정보를 버리므로 <em>작은 데이터셋에서 과적합 위험</em>.</p>
+    <p class="small"><code>sd-scripts: --optimizer_type=Lion</code></p>
+  </div>
+</div>
+
+<h4>Adafactor — 대형 모델을 위한 행렬 분해</h4>
+<div class="box" style="border-left:3px solid #007bff;margin-bottom:12px">
+<p><strong>수학적 트릭:</strong> Adam의 $v_t\in\mathbb{R}^{m\times n}$ 대신, 행/열 통계 $v^{(r)}\in\mathbb{R}^m$, $v^{(c)}\in\mathbb{R}^n$만 저장하여 <strong>외적으로 근사</strong>합니다:</p>
+<div class="formula">$$v_t^{(r)}=\rho\cdot v_{t-1}^{(r)}+(1-\rho)\cdot\text{RowMean}(g_t^2)$$</div>
+<div class="formula">$$v_t^{(c)}=\rho\cdot v_{t-1}^{(c)}+(1-\rho)\cdot\text{ColMean}(g_t^2)$$</div>
+<div class="formula">$$\hat v_t\approx\frac{v_t^{(r)}\otimes v_t^{(c)}}{\text{mean}(v_t^{(c)})}$$</div>
+<p><strong>메모리 절감:</strong> $m\times n$ 행렬에서 $m+n$ 벡터로 축소. 1024×1024 행렬이면 $\frac{2048}{1048576}\approx 0.2\%$의 메모리만 사용.</p>
+<p><strong>훈련 관점:</strong> sd-scripts에서 <code>--fused_backward_pass</code>와 함께 사용하면 backward와 optimizer step을 레이어별로 융합하여 peak VRAM을 추가 절감합니다. 대형 모델(SDXL full-finetune)에서 사실상 유일한 선택지.</p>
+</div>
+
+<div class="codebox"># sd-scripts에서 Adafactor 사용 (fused backward pass)
+# --optimizer_type=Adafactor --fused_backward_pass
+# peak VRAM: AdamW 대비 약 60-70% 수준
+
+# 핵심: scale_parameter=True면 자체 학습률 계산
+# relative_step=False + 외부 lr_scheduler 사용 권장</div>
+
+<h4>Prodigy — 학습률 자동 추정</h4>
+<div class="box" style="border-left:3px solid #ffc107;margin-bottom:12px">
+<p><strong>수학적 원리 (D-Adaptation):</strong> 최적 학습률 $d^*$의 하한을 온라인으로 추정합니다. 핵심 통찰: "그래디언트와 누적 업데이트의 내적"이 최적 $d^*$에 비례한다는 것입니다.</p>
+<div class="formula">$$d_t=\max\!\left(d_{t-1},\;\frac{\sum_{s=1}^t\langle g_s,\,x_s-x_0\rangle}{\sqrt{\sum_{s=1}^t\|g_s\|^2}}\right)$$</div>
+<div class="formula">$$\text{effective LR}=d_t\cdot\eta_\text{lr}\qquad(\eta_\text{lr}\approx 1.0\text{ 권장})$$</div>
+<p><strong>훈련 관점:</strong> LoRA 학습에서 "학습률을 얼마로 잡을까?"라는 가장 흔한 질문을 없앱니다. 대신 <code>d_coef</code>(보수성)와 <code>growth_rate</code>(최대 증가 속도)로 간접 제어. 초반 몇 백 스텝은 $d_t$가 수렴 중이므로 워밍업 기간으로 간주.</p>
+</div>
+
+<div class="codebox"># sd-scripts: --optimizer_type=Prodigy --learning_rate=1.0
+# 핵심: lr=1.0으로 설정! (Prodigy가 내부적으로 d_t를 곱하여 실효 lr 계산)
+optimizer_args = ["d_coef=2.0", "growth_rate=inf", "safeguard_warmup=true"]
+
+# diffusion-pipe: configs/*.toml
+[optimizer]
+type = "prodigy"
+lr = 1.0
+d_coef = 2.0
+
+# 모니터링: d_t 추적이 중요
+# → wandb/tensorboard에서 d_t 로그를 확인하여 수렴 판단</div>
+
+<h4>8-bit Quantized Optimizers — 정밀도와 메모리의 트레이드오프</h4>
+<div class="grid2">
+  <div class="box">
+    <h4>Dynamic Quantization</h4>
+    <div class="formula">$$m_t^{(8)}=Q_8(m_t)=\text{round}\!\left(\frac{m_t}{\max_\text{block}|m_t|}\cdot 127\right)$$</div>
+    <div class="formula">$$v_t^{(8)}=Q_8(v_t)\quad\text{(동일 방식)}$$</div>
+    <p class="small"><strong>동작:</strong> 텐서를 64~2048 크기의 블록으로 나누고, 각 블록의 absmax로 스케일링 후 INT8로 양자화. 매 스텝마다 역양자화 → 연산 → 재양자화.</p>
+    <p class="small"><strong>VRAM:</strong> 상태 메모리 $8N\to 2N$ bytes (75% 절감). 수렴 품질은 FP32와 거의 동일.</p>
+  </div>
+  <div class="box">
+    <h4>Kahan Summation 보정</h4>
+    <div class="formula">$$y=x_\text{update}-c_\text{error}$$</div>
+    <div class="formula">$$\theta'=\theta+y$$</div>
+    <div class="formula">$$c_\text{error}=(\theta'-\theta)-y$$</div>
+    <p class="small"><strong>왜 필요한가?</strong> BF16 파라미터에 작은 업데이트($\sim10^{-5}$)를 반복 누적하면 BF16의 7비트 가수(mantissa)로 인해 작은 업데이트가 <em>반올림으로 소실</em>됩니다. Kahan summation은 누적 라운딩 오차 $c$를 별도 저장하여 다음 업데이트에 보정. optimi 라이브러리가 구현.</p>
+  </div>
+</div>
+
+<div class="codebox"># diffusion-pipe: 3단계 조합 가능
+[optimizer]
+type = "adamw8bit"         # bitsandbytes 8-bit
+# type = "adamw_optimi"    # Kahan summation (optimi)
+# type = "stableadamw"     # RMS 안정화 (optimi)
+# type = "adamw8bitkahan"  # 8-bit + Kahan + Stable 결합!
+
+# sd-scripts: bitsandbytes 8-bit
+# --optimizer_type=AdamW8bit  (bitsandbytes)
+# --optimizer_type=PagedAdamW8bit  (+ CPU offload)</div>
+
+<h4>Muon (GenericOptim) — Newton-Schulz 직교화</h4>
+<div class="box" style="border-left:3px solid #e83e8c;margin-bottom:12px">
+<p><strong>수학적 원리:</strong> 그래디언트 행렬 $G$를 <strong>가장 가까운 직교 행렬</strong>로 사영합니다. 이는 모든 특이값을 1로 정규화하는 것과 같습니다:</p>
+<div class="formula">$$G'=UV^\top\qquad\text{where }G=U\Sigma V^\top\text{ (SVD)}$$</div>
+<p>SVD는 비싸므로, <strong>Newton-Schulz 반복</strong>으로 근사합니다 ($k=5$번 반복으로 충분):</p>
+<div class="formula">$$X_0=\frac{G}{\|G\|_F},\qquad X_{k+1}=\frac{15}{8}X_k-\frac{5}{4}X_k^3+\frac{3}{8}X_k^5$$</div>
+<div class="formula">$$\theta_{t+1}=\theta_t-\eta\cdot X_K$$</div>
+<p><strong>훈련 관점:</strong> 그래디언트의 "방향"만 사용하고 "크기"를 정규화하므로, 레이어 간 그래디언트 스케일 차이에 매우 강건합니다. diffusion-pipe의 GenericOptim은 2D+ 텐서에 Muon, 1D 텐서(bias, norm)에 AdamW를 자동 라우팅합니다.</p>
+</div>
+
+<h4>변형 비교</h4>
+<table>
+  <thead><tr><th>변형</th><th>핵심 차이</th><th>코드</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Muon</strong></td><td>기본 Newton-Schulz + momentum</td><td><code>momentum_type=muon</code></td></tr>
+    <tr><td><strong>AdaMuon</strong></td><td>$v_t$ 추적으로 적응적 스케일링 추가</td><td><code>momentum_type=adamuon</code></td></tr>
+    <tr><td><strong>NorMuon</strong></td><td>Nesterov momentum + 정규화</td><td><code>momentum_type=normuon</code></td></tr>
+    <tr><td><strong>Polar Express</strong></td><td>SVD 직접 계산 (정확하지만 느림)</td><td><code>momentum_type=polar_express</code></td></tr>
+  </tbody>
+</table>
+
+<div class="codebox"># diffusion-pipe: GenericOptim 설정 (configs/*.toml)
+[optimizer]
+type = "genericoptim"
+lr = 0.02                # Muon은 일반적으로 Adam보다 큰 lr
+momentum_type = "muon"   # 또는 adamuon, normuon, polar_express
+ns_steps = 5             # Newton-Schulz 반복 수
+beta = 0.95             # momentum 계수
+# 2D+ 가중치 → Muon, 1D (bias/norm) → AdamW 자동 라우팅</div>
+
+<h4>수렴 속도 비교 (이론적)</h4>
+<table>
+  <thead><tr><th>Optimizer</th><th>수렴률</th><th>조건</th><th>확산 훈련 적합성</th></tr></thead>
+  <tbody>
+    <tr><td>SGD</td><td>$O(1/\sqrt{T})$</td><td>볼록, Lipschitz</td><td>△ 느림, 안정적</td></tr>
+    <tr><td>AdamW</td><td>$O(1/\sqrt{T})$</td><td>비볼록, 적응적</td><td>◎ 표준, 범용</td></tr>
+    <tr><td>Lion</td><td>$O(1/\sqrt{T})$</td><td>부호 기반, 메모리 효율</td><td>○ 대형 배치에서 유리</td></tr>
+    <tr><td>Prodigy</td><td>$O(d^*/\sqrt{T})$</td><td>자동 $d^*$ 추정</td><td>◎ lr 튜닝 불필요</td></tr>
+    <tr><td>Muon</td><td>스텝당 고비용, 스텝 수 감소</td><td>직교화로 ill-conditioning 해소</td><td>◎ 큰 DiT에서 강점</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="math-e" class="tab-panel" data-tab-group="math-sub">
+<h3>E. 훈련 기호 사전 — 수학 ↔ 코드 완전 매핑</h3>
+<p>아래 표는 확산 모델 훈련에서 등장하는 주요 수학 기호를 정의하고, 그것이 <strong>실제 코드의 어떤 변수/인자</strong>에 대응되는지, 그리고 <strong>왜 그 값이 특정 범위</strong>인지를 설명합니다.</p>
+
+<h4>모델 &amp; 학습 기본</h4>
+<table>
+  <thead><tr><th>기호</th><th>정의</th><th>직관 &amp; 모티베이션</th><th>코드 대응</th><th>전형적 값</th></tr></thead>
+  <tbody>
+    <tr><td>$\theta$</td><td>모델 파라미터 $\theta\in\Theta\subseteq\mathbb{R}^p$</td><td>학습 대상 가중치. UNet이면 ~860M, DiT(Flux)이면 ~12B개의 스칼라.</td><td><code>model.parameters()</code></td><td>—</td></tr>
+    <tr><td>$g_t$</td><td>$g_t=\nabla_\theta\mathcal{L}(\theta_t)$</td><td>손실 함수의 기울기. <code>backward()</code>가 계산하며, 크기와 방향이 다음 업데이트를 결정.</td><td><code>loss.backward()</code> → <code>p.grad</code></td><td>—</td></tr>
+    <tr><td>$\eta$</td><td>학습률 $\eta\in\mathbb{R}^+$</td><td>파라미터 갱신 보폭. 너무 크면 발산, 너무 작으면 수렴 불가. 확산 모델에서는 ε-prediction Full FT 시 $10^{-6}$대, LoRA 시 $10^{-4}$대가 표준.</td><td><code>--learning_rate</code></td><td>1e-6~1e-4</td></tr>
+    <tr><td>$\beta_1,\beta_2$</td><td>EMA 감쇠율</td><td>$\beta_1$: 1차 모멘트(방향)의 관성. 높을수록 과거 기울기에 더 의존. $\beta_2$: 2차 모멘트(스케일)의 관성. 0.999면 ~1000스텝의 평균 분산.</td><td><code>betas=(0.9, 0.999)</code></td><td>$\beta_1\in[0.9,0.95]$<br>$\beta_2\in[0.99,0.999]$</td></tr>
+    <tr><td>$\epsilon_\text{adam}$</td><td>분모 안정화 상수</td><td>$\sqrt{\hat v_t}=0$일 때 0으로 나누는 것을 방지. BF16에서는 1e-8이 underflow할 수 있어 1e-6으로 올리기도 함.</td><td><code>eps=1e-8</code></td><td>1e-8~1e-6</td></tr>
+    <tr><td>$\lambda$</td><td>Weight Decay 계수</td><td>$\theta$의 L2 노름을 줄여 과적합 방지. AdamW에서는 그래디언트 스텝과 독립적으로 $\theta\leftarrow(1-\eta\lambda)\theta$ 적용.</td><td><code>weight_decay=0.01</code></td><td>0.0~0.1</td></tr>
+  </tbody>
+</table>
+
+<h4>확산 과정</h4>
+<table>
+  <thead><tr><th>기호</th><th>정의</th><th>직관 &amp; 모티베이션</th><th>코드 대응</th><th>전형적 값</th></tr></thead>
+  <tbody>
+    <tr><td>$\beta_t$</td><td>스텝 $t$에서의 노이즈 주입 비율</td><td>각 이산 스텝에서 얼마나 노이즈를 추가할지. linear: 0.0001→0.02, cosine: $1-\frac{\bar\alpha_t}{\bar\alpha_{t-1}}$ (더 균일한 SNR 변화)</td><td><code>noise_scheduler.betas</code></td><td>0.0001~0.02</td></tr>
+    <tr><td>$\bar\alpha_t$</td><td>$\prod_{s=1}^t(1-\beta_s)$ — 누적 신호 보존율</td><td>$t$까지의 총 신호 잔존 비율. $\bar\alpha_0=1$ (원본), $\bar\alpha_T\approx 0$ (순수 노이즈). 보간 공식 $x_t=\sqrt{\bar\alpha_t}x_0+\sqrt{1-\bar\alpha_t}\epsilon$의 핵심.</td><td><code>alphas_cumprod[t]</code></td><td>$[1.0\to\approx0.0]$</td></tr>
+    <tr><td>$\text{SNR}(t)$</td><td>$\bar\alpha_t/(1-\bar\alpha_t)$</td><td>신호 대 잡음 전력 비. 모든 가중치 기법(min-SNR-γ, debiased 등)의 기초. dB 스케일로 보면 $\text{SNR}_\text{dB}=10\log_{10}(\text{SNR})$.</td><td><code>(alpha/sigma)**2</code></td><td>$[\infty\to 0]$</td></tr>
+    <tr><td>$\sigma(t)$</td><td>Flow Matching에서의 노이즈 수준 $=t$</td><td>Flow Matching에서는 $\sigma=t$로 단순화. Shift 변환 $\sigma'=\frac{s\sigma}{1+(s-1)\sigma}$로 분포 조정.</td><td><code>sigma / timestep</code></td><td>$[0,1]$</td></tr>
+    <tr><td>$v_t$</td><td>velocity field $=\epsilon-x_0$ (FM) 또는 $\sqrt{\bar\alpha_t}\epsilon-\sqrt{1-\bar\alpha_t}x_0$ (DDPM v-pred)</td><td>모델이 예측하는 대상. 확산 경로의 "속도"로, 이 방향을 따라가면 노이즈에서 데이터로 도달.</td><td><code>target = noise - latent</code></td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h4>LoRA &amp; 파라미터 효율적 학습</h4>
+<table>
+  <thead><tr><th>기호</th><th>정의</th><th>직관 &amp; 모티베이션</th><th>코드 대응</th><th>전형적 값</th></tr></thead>
+  <tbody>
+    <tr><td>$r$</td><td>LoRA 행렬의 랭크 $r\ll\min(d_\text{in},d_\text{out})$</td><td>$W\in\mathbb{R}^{d\times d}$를 $\Delta W=BA$, $B\in\mathbb{R}^{d\times r}$, $A\in\mathbb{R}^{r\times d}$로 근사. 학습 파라미터: $d^2\to 2dr$ (예: $d=4096, r=16$이면 $16M\to 131K$).</td><td><code>--network_dim</code> / <code>lora_rank</code></td><td>4~128</td></tr>
+    <tr><td>$\alpha_\text{lora}$</td><td>스케일링 계수</td><td>$\Delta W=\frac{\alpha}{r}BA$. $\alpha/r$이 실질적 학습률 스케일. $\alpha=r$이면 스케일 1.0, $\alpha=r/2$이면 0.5. 학습률과 곱해지므로 lr을 올리는 것과 $\alpha$를 올리는 것은 같은 효과.</td><td><code>--network_alpha</code> / <code>lora_alpha</code></td><td>$r$의 절반~동일</td></tr>
+    <tr><td>$\Delta W$</td><td>LoRA 가중치 행렬 $=\frac{\alpha}{r}BA$</td><td>원본 가중치 $W$에 더해져 $W+\Delta W$가 최종 가중치. 학습 중에는 $A$: 가우시안 초기화, $B$: 0 초기화 → $\Delta W=0$에서 출발 (원본 보존).</td><td><code>lora_up @ lora_down * scale</code></td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h4>훈련 제어</h4>
+<table>
+  <thead><tr><th>기호</th><th>정의</th><th>직관 &amp; 모티베이션</th><th>코드 대응</th><th>전형적 값</th></tr></thead>
+  <tbody>
+    <tr><td>$N_\text{acc}$</td><td>Gradient Accumulation Steps</td><td>$N_\text{acc}$번의 미니배치 그래디언트를 합산 후 1회 업데이트. 유효 배치 = micro_batch × $N_\text{acc}$ × GPU 수. VRAM 부족 시 유효 배치를 키우는 핵심 도구.</td><td><code>--gradient_accumulation_steps</code></td><td>1~8</td></tr>
+    <tr><td>$\|\nabla\|_\text{clip}$</td><td>최대 그래디언트 노름</td><td>$\|g_t\|>\text{clip}$이면 $g_t\leftarrow g_t\cdot\frac{\text{clip}}{\|g_t\|}$. 폭발하는 기울기(gradient explosion) 방지. 너무 작으면 학습 속도 저하.</td><td><code>--max_grad_norm</code></td><td>1.0 (기본)</td></tr>
+    <tr><td>$\sigma_\text{shift}$</td><td>Flow Matching sigma shift</td><td>$\sigma'=\frac{s\sigma}{1+(s-1)\sigma}$의 $s$ 값. $s>1$이면 고노이즈 방향 시프트. Flux dev=3.0, schnell=1.0, SD3=3.0.</td><td><code>--discrete_flow_shift</code></td><td>1.0~3.0</td></tr>
+    <tr><td>$T$</td><td>총 학습 스텝 수</td><td>스케줄러 웜업/디케이 계산의 기준. 데이터셋 크기와 에폭 수의 곱. 소규모 LoRA: 500~2000, 대규모 FT: 10K~100K+.</td><td><code>--max_train_steps</code></td><td>500~100K</td></tr>
+    <tr><td>$\gamma_\text{snr}$</td><td>Min-SNR-γ의 클리핑 threshold</td><td>$\text{SNR}(t)>\gamma$인 timestep의 가중치를 $\gamma/\text{SNR}$로 축소. $\gamma=5$가 Pareto 최적에 근접 (논문 실험). $\gamma=1$이면 매우 공격적 클리핑.</td><td><code>--snr_gamma</code></td><td>5.0</td></tr>
+    <tr><td>$c_\text{huber}$</td><td>Pseudo-Huber loss의 형상 파라미터</td><td>$\mathcal{L}=\sqrt{e^2+c^2}-c$. $c\to 0$: L1 행동(이상치 강건), $c\to\infty$: L2 행동(효율적 학습). 중간값 $c=0.1$이 균형점.</td><td><code>--huber_c</code></td><td>0.1</td></tr>
+  </tbody>
+</table>
+</section>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 1: 통합 훈련 루프 -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="training-loop" class="tab-panel" data-tab-group="master">
+<h2>1) 통합 훈련 루프 — 3개 코드베이스의 공통 구조</h2>
+<p>sampler_site의 "통합 상태천이 모델"처럼, 훈련도 동일한 루프 구조에서 <strong>loss/optimizer/noise scheduling</strong> 항을 교체하는 방식으로 통합합니다.</p>
+
+<div class="formula">
+$$\theta_{t+1}=\theta_t-\eta\cdot\text{Optimizer}\!\left(\nabla_\theta\,\mathbb{E}_{x_0\sim p_\text{data},\,\epsilon\sim\mathcal{N},\,t\sim p(t)}\left[w(t)\cdot\mathcal{L}(\underbrace{f_\theta(x_t,t)}_{\text{model}},\underbrace{\text{target}(x_0,\epsilon,t)}_{\text{objective}})\right]\right)$$
+</div>
+
+<div class="codebox"># 통합 훈련 루프 스켈레톤 (3개 코드베이스 공통 구조)
+for epoch in range(num_epochs):
+    for batch in dataloader:
+        # ── 1. 데이터 준비 ──
+        x_0 = vae.encode(batch["image"])        # latent 인코딩
+        cond = text_encoder(batch["caption"])     # 텍스트 임베딩
+        
+        # ── 2. 노이즈 스케줄링 ──
+        t = sample_timestep(strategy)             # timestep 샘플링
+        epsilon = torch.randn_like(x_0)           # 가우시안 노이즈
+        x_t = forward_process(x_0, epsilon, t)    # 정방향 확산
+        
+        # ── 3. 모델 예측 ──
+        pred = model(x_t, t, cond)                # ε, v, 또는 velocity
+        target = compute_target(x_0, epsilon, t)  # 예측 유형에 따른 타겟
+        
+        # ── 4. 손실 계산 ──
+        loss = loss_fn(pred, target)              # MSE / Huber / ...
+        loss = apply_weighting(loss, t)           # min-SNR, debiased, ...
+        loss = apply_mask(loss, mask)             # 마스크 적용 (선택)
+        
+        # ── 5. 역전파 & 최적화 ──
+        loss.backward()
+        if step % grad_accum == 0:
+            clip_grad_norm_(model.parameters(), max_norm)
+            optimizer.step()
+            lr_scheduler.step()
+            optimizer.zero_grad()
+        
+        # ── 6. 체크포인트 ──
+        if step % save_interval == 0:
+            save_checkpoint(model, optimizer, step)
+</div>
+
+<h3>코드베이스별 구현 매핑</h3>
+<table>
+  <thead><tr><th>루프 단계</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth-Studio</th></tr></thead>
+  <tbody>
+    <tr><td><strong>데이터 준비</strong></td><td><code>cache_latents</code> + DataLoader</td><td>HF <code>datasets</code> + 사전 캐싱</td><td><code>UnifiedDataset</code> + 연산자 파이프라인</td></tr>
+    <tr><td><strong>Timestep 샘플링</strong></td><td><code>--timestep_sampling</code></td><td>모델별 <code>timestep_sampling()</code></td><td><code>FlowMatchScheduler</code></td></tr>
+    <tr><td><strong>정방향 확산</strong></td><td>noise scheduler <code>add_noise</code></td><td>모델별 <code>forward_process</code></td><td><code>scheduler.add_noise()</code></td></tr>
+    <tr><td><strong>모델 예측</strong></td><td><code>unet()</code> / <code>dit()</code></td><td><code>pipeline.forward()</code></td><td><code>training_module.forward()</code></td></tr>
+    <tr><td><strong>손실 계산</strong></td><td><code>custom_train_functions</code></td><td><code>BasePipeline.loss()</code></td><td><code>FlowMatchSFTLoss</code></td></tr>
+    <tr><td><strong>최적화</strong></td><td>HF Accelerate + 직접 스케줄</td><td>DeepSpeed Pipeline</td><td>HF Accelerate</td></tr>
+    <tr><td><strong>체크포인트</strong></td><td>safetensors 직접 저장</td><td>DeepSpeed + safetensors</td><td><code>ModelLogger</code> safetensors</td></tr>
+  </tbody>
+</table>
+
+<h3>레이어 분해 (inference의 Model/Schedule/Stepper 대응)</h3>
+<table>
+  <thead><tr><th>훈련 레이어</th><th>핵심 객체</th><th>수학 역할</th><th>튜닝 포인트</th></tr></thead>
+  <tbody>
+    <tr><td>Data Layer</td><td><code>Dataset / DataLoader</code></td><td>$(x_0,c)\sim p_\text{data}$ 샘플링</td><td>resolution, AR bucket, caption shuffle</td></tr>
+    <tr><td>Noise Layer</td><td><code>NoiseScheduler</code></td><td>$q(x_t|x_0)$ 정방향 확산</td><td>noise_offset, zero_terminal_snr, discrete_flow_shift</td></tr>
+    <tr><td>Model Layer</td><td><code>UNet / DiT</code></td><td>$f_\theta(x_t,t,c)$ 예측</td><td>architecture, adapter, precision</td></tr>
+    <tr><td>Loss Layer</td><td><code>LossFunction</code></td><td>$\mathcal{L}(\text{pred},\text{target})$ 계산</td><td>loss_type, weighting, masking</td></tr>
+    <tr><td>Optimizer Layer</td><td><code>Optimizer + Scheduler</code></td><td>$\theta_{t+1}=\text{update}(\theta_t,g_t)$</td><td>optimizer_type, lr, betas, weight_decay</td></tr>
+    <tr><td>Memory Layer</td><td><code>DeepSpeed / Accelerate</code></td><td>$\text{VRAM} \leq \text{budget}$ 제약</td><td>precision, checkpointing, offload, quantization</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 2: Optimizer Catalog -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="optimizer-catalog" class="tab-panel" data-tab-group="master">
+<h2>2) Optimizer Catalog</h2>
+<div class="filter">
+  <input id="optSearchInput" placeholder="옵티마이저 검색: adamw, lion, prodigy ..."/>
+  <select id="optFamilyFilter">
+    <option value="all">분류 전체</option>
+    <option value="Adam">Adam 계열</option>
+    <option value="SGD">SGD 계열</option>
+    <option value="Adaptive">적응형 (D-Adapt/Prodigy)</option>
+    <option value="ScheduleFree">Schedule-Free</option>
+    <option value="Advanced">고급 (Muon/Automagic)</option>
+    <option value="Offload">Offload</option>
+  </select>
+  <select id="optSourceFilter">
+    <option value="all">코드베이스 전체</option>
+    <option value="sd-scripts">sd-scripts</option>
+    <option value="diffusion-pipe">diffusion-pipe</option>
+    <option value="diffsynth">DiffSynth-Studio</option>
+  </select>
+</div>
+<table>
+  <thead><tr><th>Optimizer</th><th>분류</th><th>수식 핵심</th><th>메모리</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>주요 파라미터</th></tr></thead>
+  <tbody>
+    <tr class="opt-row" data-name="adamw" data-family="Adam" data-sources="sd-scripts,diffusion-pipe,diffsynth"><td><a class='row-link' href='optimizer/adamw.html'><code>AdamW</code></a></td><td>Adam</td><td>$\hat m/(\sqrt{\hat v}+\epsilon)+\lambda\theta$</td><td>8N</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><code>lr, betas, weight_decay, eps</code></td></tr>
+    <tr class="opt-row" data-name="adamw8bit" data-family="Adam" data-sources="sd-scripts,diffusion-pipe"><td><a class='row-link' href='optimizer/adamw8bit.html'><code>AdamW8bit</code></a></td><td>Adam</td><td>$Q_8(\hat m,\hat v)$ 동적양자화</td><td>2N</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, weight_decay</code></td></tr>
+    <tr class="opt-row" data-name="adamw_optimi" data-family="Adam" data-sources="diffusion-pipe"><td><a class='row-link' href='optimizer/adamw_optimi.html'><code>AdamW (optimi)</code></a></td><td>Adam</td><td>AdamW + Kahan Summation</td><td>8N+</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, kahan_sum</code></td></tr>
+    <tr class="opt-row" data-name="stableadamw" data-family="Adam" data-sources="diffusion-pipe"><td><a class='row-link' href='optimizer/stableadamw.html'><code>StableAdamW</code></a></td><td>Adam</td><td>Stabilized AdamW variance</td><td>8N+</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, stabilize</code></td></tr>
+    <tr class="opt-row" data-name="adamw8bitkahan" data-family="Adam" data-sources="diffusion-pipe"><td><a class='row-link' href='optimizer/adamw8bitkahan.html'><code>AdamW8bitKahan</code></a></td><td>Adam</td><td>8-bit + Kahan 보정</td><td>2N+</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, stabilize</code></td></tr>
+    <tr class="opt-row" data-name="pagedadamw" data-family="Adam" data-sources="sd-scripts"><td><code>PagedAdamW</code></td><td>Adam</td><td>Paged memory allocation</td><td>8N (paged)</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, weight_decay</code></td></tr>
+    <tr class="opt-row" data-name="lion" data-family="Adam" data-sources="sd-scripts"><td><code>Lion</code></td><td>Adam</td><td>$\text{sign}(\beta_1 m+\cdots)$</td><td>4N</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, weight_decay</code></td></tr>
+    <tr class="opt-row" data-name="lion8bit" data-family="Adam" data-sources="sd-scripts"><td><code>Lion8bit</code></td><td>Adam</td><td>8-bit Lion</td><td>1N</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas</code></td></tr>
+    <tr class="opt-row" data-name="sgd" data-family="SGD" data-sources="sd-scripts,diffusion-pipe"><td><code>SGD</code></td><td>SGD</td><td>$\theta-\eta g$</td><td>0</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr, momentum</code></td></tr>
+    <tr class="opt-row" data-name="sgdnesterov" data-family="SGD" data-sources="sd-scripts"><td><code>SGDNesterov</code></td><td>SGD</td><td>Nesterov 가속 모멘텀</td><td>4N</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>lr, momentum=0.9</code></td></tr>
+    <tr class="opt-row" data-name="adafactor" data-family="Adaptive" data-sources="sd-scripts"><td><code>Adafactor</code></td><td>Adaptive</td><td>행/열 분해된 2차 모멘트</td><td>~2N (factored)</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>relative_step, scale_parameter</code></td></tr>
+    <tr class="opt-row" data-name="prodigy" data-family="Adaptive" data-sources="sd-scripts,diffusion-pipe"><td><a class='row-link' href='optimizer/prodigy.html'><code>Prodigy</code></a></td><td>Adaptive</td><td>$d_t$ 자동 LR 추정</td><td>8N+</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr≈1.0, d_coef, growth_rate</code></td></tr>
+    <tr class="opt-row" data-name="dadaptadam" data-family="Adaptive" data-sources="sd-scripts"><td><code>DAdaptAdam</code></td><td>Adaptive</td><td>D-Adaptation framework</td><td>8N+</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>lr≈1.0</code></td></tr>
+    <tr class="opt-row" data-name="adamwschedulefree" data-family="ScheduleFree" data-sources="sd-scripts"><td><code>AdamWScheduleFree</code></td><td>ScheduleFree</td><td>내장 스케줄 (warmup만)</td><td>8N</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td><code>lr, betas, warmup_steps</code></td></tr>
+    <tr class="opt-row" data-name="muon" data-family="Advanced" data-sources="diffusion-pipe"><td><a class='row-link' href='optimizer/muon.html'><code>Muon (GenericOptim)</code></a></td><td>Advanced</td><td>Newton-Schulz 직교화</td><td>4N+</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>momentum_type, ns_steps</code></td></tr>
+    <tr class="opt-row" data-name="automagic" data-family="Advanced" data-sources="diffusion-pipe"><td><code>Automagic</code></td><td>Advanced</td><td>부호 일치 기반 적응 LR</td><td>~2N</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>lr, factored</code></td></tr>
+    <tr class="opt-row" data-name="cpuoffload" data-family="Offload" data-sources="diffusion-pipe"><td><code>CPUOffload</code></td><td>Offload</td><td>옵티마이저 상태 CPU 오프로드</td><td>0 (GPU)</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><code>inner_optimizer</code></td></tr>
+  </tbody>
+</table>
+<p class="small">메모리: N = 파라미터 수. 예: 4N = 4 bytes/param (FP32 모멘텀 1개). AdamW 8N = m(4N) + v(4N). 8-bit는 Q_8로 1/4.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 3: LR Scheduler -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="lr-scheduler" class="tab-panel" data-tab-group="master">
+<h2>3) LR Scheduler Catalog</h2>
+<p>학습률 스케줄러는 훈련 중 $\eta(t)$의 궤적을 결정합니다. 추론에서 <code>sigma scheduler</code>가 노이즈 레벨을 결정했듯, 여기서는 학습률 레벨을 결정합니다.</p>
+
+<table>
+  <thead><tr><th>Scheduler</th><th>수식</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>핵심 파라미터</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>constant</strong></td>
+      <td>$$\eta(t)=\eta_0$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><strong>constant_with_warmup</strong></td>
+      <td>$$\eta(t)=\begin{cases}\eta_0\cdot t/T_w&t<T_w\\\eta_0&t\ge T_w\end{cases}$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge partial">△</span></td><td><span class="badge no">✗</span></td>
+      <td><code>warmup_steps</code></td>
+    </tr>
+    <tr>
+      <td><strong>linear</strong></td>
+      <td>$$\eta(t)=\eta_0\left(1-\frac{t-T_w}{T-T_w}\right)$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td>
+      <td><code>warmup_steps</code></td>
+    </tr>
+    <tr>
+      <td><strong>cosine</strong></td>
+      <td>$$\eta(t)=\eta_\text{min}+\frac12(\eta_0-\eta_\text{min})\left(1+\cos\frac{\pi(t-T_w)}{T-T_w}\right)$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td>
+      <td><code>warmup_steps</code></td>
+    </tr>
+    <tr>
+      <td><strong>cosine_with_restarts</strong></td>
+      <td>$$\eta(t)=\eta_\text{min}+\frac12(\eta_0-\eta_\text{min})\left(1+\cos\frac{\pi\cdot((t-T_w)\bmod T_c)}{T_c}\right)$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td>
+      <td><code>warmup_steps, num_cycles</code></td>
+    </tr>
+    <tr>
+      <td><strong>polynomial</strong></td>
+      <td>$$\eta(t)=\eta_\text{end}+(\eta_0-\eta_\text{end})\left(1-\frac{t-T_w}{T-T_w}\right)^p$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td>
+      <td><code>warmup_steps, power</code></td>
+    </tr>
+    <tr>
+      <td><strong>inverse_sqrt</strong></td>
+      <td>$$\eta(t)=\frac{\eta_0}{\sqrt{\max(t,T_s)}}$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td>
+      <td><code>timescale</code></td>
+    </tr>
+    <tr>
+      <td><strong>warmup_stable_decay</strong></td>
+      <td>$$\eta(t)=\begin{cases}\text{warmup}&t<T_w\\\eta_0&T_w\le t<T_s\\\text{decay}&t\ge T_s\end{cases}$$</td>
+      <td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td>
+      <td><code>warmup_steps, decay_steps, min_lr_ratio</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="formula">
+$$\text{유효 학습률: }\eta_\text{eff}(t)=\underbrace{\eta_\text{base}}_{\text{--learning\_rate}}\times\underbrace{f_\text{sched}(t)}_{\text{scheduler}}\times\underbrace{s_\text{opt}}_{\text{optimizer 내부 (Prodigy: }d_t\text{)}}$$
+</div>
+
+<h3>Warmup의 수학적 의미</h3>
+<div class="box">
+<p>초기 그래디언트는 무작위 초기화에서 비롯되어 <strong>분산이 크고 방향이 불안정</strong>합니다. Warmup은:</p>
+<div class="formula">$$\text{Var}[g_t]\propto\frac{1}{|B|}\quad\Rightarrow\quad\text{초기 소 배치에서는 }\eta\text{를 줄여야 안정}$$</div>
+<p class="small">Adam의 bias correction ($1-\beta_2^t$)이 초기에 불충분할 때 warmup이 이를 보완합니다.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 4: Loss & Weighting -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="loss-catalog" class="tab-panel" data-tab-group="master">
+<h2>4) Loss &amp; Weighting 상세</h2>
+
+<div class="tabs mini" data-tab-group="loss-sub">
+  <button class="tab-btn active" data-tab-group="loss-sub" data-tab-target="loss-base">기본 손실</button>
+  <button class="tab-btn" data-tab-group="loss-sub" data-tab-target="loss-weight">가중치 전략</button>
+  <button class="tab-btn" data-tab-group="loss-sub" data-tab-target="loss-noise">노이즈 변형</button>
+  <button class="tab-btn" data-tab-group="loss-sub" data-tab-target="loss-special">특수 손실</button>
+</div>
+
+<section id="loss-base" class="tab-panel active" data-tab-group="loss-sub">
+<h3>기본 손실 함수</h3>
+<table>
+  <thead><tr><th>손실</th><th>수식</th><th>특성</th><th>코드 플래그</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>L2 (MSE)</strong></td>
+      <td>$$\ell(x,y)=\|x-y\|_2^2$$</td>
+      <td>기본값. 이상치에 민감</td>
+      <td><code>loss_type=l2</code> (sd-scripts)<br>기본값 (diffusion-pipe, DiffSynth)</td>
+    </tr>
+    <tr>
+      <td><strong>L1 (MAE)</strong></td>
+      <td>$$\ell(x,y)=\|x-y\|_1$$</td>
+      <td>이상치에 강건. 0에서 미분 불연속</td>
+      <td><code>loss_type=l1</code> (sd-scripts)</td>
+    </tr>
+    <tr>
+      <td><strong>Huber</strong></td>
+      <td>$$\ell_\delta(x,y)=\begin{cases}\frac12(x-y)^2&|x-y|\le\delta\\\delta(|x-y|-\frac12\delta)&\text{otherwise}\end{cases}$$</td>
+      <td>L2와 L1의 하이브리드</td>
+      <td><code>loss_type=huber</code> (sd-scripts)</td>
+    </tr>
+    <tr>
+      <td><strong>Pseudo-Huber</strong></td>
+      <td>$$\ell_c(x,y)=\sqrt{(x-y)^2+c^2}-c$$</td>
+      <td>미분가능한 Huber 근사. $c\to 0$이면 L1, $c\to\infty$면 L2에 수렴</td>
+      <td><code>pseudo_huber_c</code> (diffusion-pipe)</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<section id="loss-weight" class="tab-panel" data-tab-group="loss-sub">
+<h3>Timestep 가중치 전략</h3>
+<table>
+  <thead><tr><th>전략</th><th>가중치 $w(t)$</th><th>효과</th><th>코드베이스</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Uniform</strong></td>
+      <td>$$w(t)=1$$</td>
+      <td>기본값. 모든 timestep 동등</td>
+      <td>전체</td>
+    </tr>
+    <tr>
+      <td><strong>Min-SNR-γ</strong></td>
+      <td>$$w(t)=\frac{\min(\text{SNR}(t),\gamma)}{\text{SNR}(t)}$$</td>
+      <td>γ=5 권장. 고 SNR(저노이즈) 영역 억제</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+    <tr>
+      <td><strong>Debiased (ε)</strong></td>
+      <td>$$w_\epsilon(t)=\frac{1}{\sqrt{\text{SNR}(t)}}$$</td>
+      <td>편향 보정. ε-prediction용</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+    <tr>
+      <td><strong>Debiased (v)</strong></td>
+      <td>$$w_v(t)=\frac{1}{\text{SNR}(t)+1}$$</td>
+      <td>편향 보정. v-prediction용</td>
+      <td><span class="tag sdscripts">sd-scripts</span><span class="tag diffpipe">diffusion-pipe</span></td>
+    </tr>
+    <tr>
+      <td><strong>σ-sqrt (Flow)</strong></td>
+      <td>$$w(t)=\sigma_t^{-2}$$</td>
+      <td>Flow matching 모델에서 σ 기반 가중치</td>
+      <td><span class="tag sdscripts">sd-scripts</span></td>
+    </tr>
+    <tr>
+      <td><strong>Bell-shaped</strong></td>
+      <td>$$w(t)=\exp\!\left(-2\left(\frac{t-500}{1000}\right)^2\right)$$</td>
+      <td>가우시안 벨: 중간 timestep 집중</td>
+      <td><span class="tag diffsynth">DiffSynth</span></td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<section id="loss-noise" class="tab-panel" data-tab-group="loss-sub">
+<h3>노이즈 변형 기법</h3>
+<table>
+  <thead><tr><th>기법</th><th>수식</th><th>효과</th><th>코드 플래그</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Noise Offset</strong></td>
+      <td>$$\epsilon'=\epsilon+\delta\cdot\mathcal{N}(0,1)\cdot\mathbf{1}_{C\times 1\times 1}$$</td>
+      <td>채널별 전역 밝기 조정 학습 가능</td>
+      <td><code>--noise_offset 0.1</code></td>
+    </tr>
+    <tr>
+      <td><strong>Adaptive Noise Scale</strong></td>
+      <td>$$\delta_\text{adapt}=\delta\cdot s\cdot\text{mean}(x_0)$$</td>
+      <td>이미지 평균 밝기에 따라 오프셋 스케일</td>
+      <td><code>--adaptive_noise_scale</code></td>
+    </tr>
+    <tr>
+      <td><strong>Multi-resolution Noise</strong></td>
+      <td>$$\epsilon'=\epsilon+\sum_{l=1}^L d^l\cdot\text{upsample}(\mathcal{N}(0,I_{H/2^l}))$$</td>
+      <td>다중 해상도 피라미드 노이즈. 저주파 학습 개선</td>
+      <td><code>--multires_noise_iterations 6</code></td>
+    </tr>
+    <tr>
+      <td><strong>Input Perturbation (IP)</strong></td>
+      <td>$$x_t'=x_t+\gamma\cdot\mathcal{N}(0,I)$$</td>
+      <td>입력에 추가 섭동. 다양성 증가</td>
+      <td><code>--ip_noise_gamma 0.1</code></td>
+    </tr>
+    <tr>
+      <td><strong>Zero Terminal SNR</strong></td>
+      <td>$$\bar\alpha_T\to 0\quad\Rightarrow\quad\text{SNR}(T)=0$$</td>
+      <td>마지막 timestep에서 순수 노이즈 보장</td>
+      <td><code>--zero_terminal_snr</code></td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<section id="loss-special" class="tab-panel" data-tab-group="loss-sub">
+<h3>특수 손실 (DiffSynth-Studio)</h3>
+<table>
+  <thead><tr><th>손실</th><th>수식/설명</th><th>용도</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>FlowMatchSFTLoss</strong></td>
+      <td>표준 flow matching MSE + <code>training_weight(t)</code> (bell-shaped 가중치)</td>
+      <td>기본 SFT (Supervised Fine-Tuning)</td>
+    </tr>
+    <tr>
+      <td><strong>DirectDistillLoss</strong></td>
+      <td>$$\mathcal{L}=\text{MSE}(x_\text{student final},x_0)$$<br>전체 추론 경로 end-to-end</td>
+      <td>증류 (Distillation)</td>
+    </tr>
+    <tr>
+      <td><strong>TrajectoryImitationLoss</strong></td>
+      <td>$$\mathcal{L}=\lambda_1\text{MSE}(\text{traj}_\text{student},\text{traj}_\text{teacher})+\lambda_2\text{LPIPS}(\hat x_0,x_0)$$</td>
+      <td>경로 모방 + 지각 손실 (Z-Image)</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 5: Architecture Catalog -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="arch-catalog" class="tab-panel" data-tab-group="master">
+<h2>5) Architecture Catalog</h2>
+<p>추론에서 sampler 카탈로그가 있었듯, 훈련에서는 <strong>아키텍처 카탈로그</strong>가 핵심입니다.</p>
+
+<div class="filter">
+  <input id="archSearchInput" placeholder="아키텍처 검색: flux, sdxl, wan ..."/>
+  <select id="archTypeFilter">
+    <option value="all">유형 전체</option>
+    <option value="image">Image</option>
+    <option value="video">Video</option>
+    <option value="both">Image+Video</option>
+  </select>
+  <select id="archBackboneFilter">
+    <option value="all">백본 전체</option>
+    <option value="UNet">UNet</option>
+    <option value="DiT">DiT</option>
+    <option value="MMDiT">MMDiT</option>
+  </select>
+</div>
+
+<table>
+  <thead><tr><th>Architecture</th><th>유형</th><th>백본</th><th>확산 유형</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>훈련 모드</th></tr></thead>
+  <tbody>
+    <tr class="arch-row" data-name="sd1x" data-type="image" data-backbone="UNet"><td><a class='row-link' href='architecture/sd1x.html'><code>SD 1.x/2.x</code></a></td><td>Image</td><td>UNet</td><td>DDPM (ε/v)</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td>FT, DB, LoRA, TI, CN</td></tr>
+    <tr class="arch-row" data-name="sdxl" data-type="image" data-backbone="UNet"><td><a class='row-link' href='architecture/sdxl.html'><code>SDXL</code></a></td><td>Image</td><td>UNet</td><td>DDPM (ε/v)</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, DB, LoRA, TI, CN</td></tr>
+    <tr class="arch-row" data-name="sd3" data-type="image" data-backbone="MMDiT"><td><a class='row-link' href='architecture/sd3.html'><code>SD3 / SD3.5</code></a></td><td>Image</td><td>MMDiT</td><td>Flow Matching</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="flux" data-type="image" data-backbone="DiT"><td><a class='row-link' href='architecture/flux.html'><code>FLUX.1</code></a></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td>FT, LoRA, CN</td></tr>
+    <tr class="arch-row" data-name="flux2" data-type="image" data-backbone="DiT"><td><code>FLUX.2</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="chroma" data-type="image" data-backbone="DiT"><td><code>Chroma</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="lumina" data-type="image" data-backbone="DiT"><td><code>Lumina</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="hunyuandit" data-type="image" data-backbone="DiT"><td><code>HunyuanDiT</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+    <tr class="arch-row" data-name="hunyuanimage" data-type="image" data-backbone="DiT"><td><code>HunyuanImage 2.1</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="qwenimage" data-type="image" data-backbone="DiT"><td><code>Qwen-Image</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="zimage" data-type="image" data-backbone="DiT"><td><code>Z-Image</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="hidream" data-type="image" data-backbone="DiT"><td><code>HiDream</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+    <tr class="arch-row" data-name="auraflow" data-type="image" data-backbone="DiT"><td><code>AuraFlow</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+    <tr class="arch-row" data-name="omnigen2" data-type="image" data-backbone="DiT"><td><code>OmniGen2</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+    <tr class="arch-row" data-name="cosmos_predict2" data-type="image" data-backbone="DiT"><td><code>Cosmos-Predict2</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="anima" data-type="image" data-backbone="DiT"><td><code>Anima</code></td><td>Image</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="wan" data-type="video" data-backbone="DiT"><td><a class='row-link' href='architecture/wan.html'><code>Wan 2.1/2.2</code></a></td><td>Video</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="hunyuanvideo" data-type="video" data-backbone="DiT"><td><code>HunyuanVideo</code></td><td>Video</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+    <tr class="arch-row" data-name="hunyuanvideo15" data-type="both" data-backbone="DiT"><td><code>HunyuanVideo 1.5</code></td><td>Image+Video</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>FT, LoRA</td></tr>
+    <tr class="arch-row" data-name="ltxvideo" data-type="video" data-backbone="DiT"><td><code>LTX-Video</code></td><td>Video</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+    <tr class="arch-row" data-name="cosmos" data-type="video" data-backbone="DiT"><td><code>Cosmos</code></td><td>Video</td><td>DiT</td><td>Flow Matching</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td>LoRA</td></tr>
+  </tbody>
+</table>
+
+<h3>LoRA 수학: 저랭크 적응</h3>
+<div class="formula">$$W'=W_0+\Delta W=W_0+\frac{\alpha}{r}BA,\quad B\in\mathbb{R}^{d_\text{out}\times r},\;A\in\mathbb{R}^{r\times d_\text{in}}$$</div>
+<div class="grid2">
+  <div class="box">
+    <h3>파라미터 절감</h3>
+    <div class="formula">$$|\Delta W|=r(d_\text{in}+d_\text{out})\ll d_\text{in}\cdot d_\text{out}$$</div>
+    <p class="small">$d=4096, r=16$이면: LoRA = $131\text{K}$ vs Full = $16.8\text{M}$ (127배 절감)</p>
+  </div>
+  <div class="box">
+    <h3>유효 학습률</h3>
+    <div class="formula">$$\eta_\text{eff}=\eta_\text{base}\cdot\frac{\alpha}{r}$$</div>
+    <p class="small">sd-scripts: <code>network_alpha</code> 기본 1 → 실효 배율 $1/r$<br>
+    diffusion-pipe/DiffSynth: <code>alpha=rank</code> → 실효 배율 1</p>
+  </div>
+</div>
+
+<h3>훈련 모드 비교</h3>
+<table>
+  <thead><tr><th>모드</th><th>학습 대상</th><th>VRAM</th><th>출력</th><th>코드베이스</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Full Fine-Tune</strong></td><td>$\theta$ 전체</td><td>매우 높음</td><td>전체 모델</td><td>전체</td></tr>
+    <tr><td><strong>LoRA</strong></td><td>$B, A$ 행렬만</td><td>낮음~중간</td><td>어댑터 파일</td><td>전체</td></tr>
+    <tr><td><strong>DreamBooth</strong></td><td>$\theta$ 전체 + 정규화</td><td>높음</td><td>전체 모델</td><td>sd-scripts</td></tr>
+    <tr><td><strong>Textual Inversion</strong></td><td>토큰 임베딩 $e_*$ 만</td><td>매우 낮음</td><td>임베딩 파일</td><td>sd-scripts</td></tr>
+    <tr><td><strong>ControlNet</strong></td><td>조건 인코더 $\theta_\text{cn}$</td><td>중간</td><td>ControlNet 모델</td><td>sd-scripts, diffusion-pipe</td></tr>
+    <tr><td><strong>DyLoRA</strong></td><td>가변 랭크 $r\in\{1,\dots,R\}$</td><td>낮음</td><td>어댑터 파일</td><td>sd-scripts</td></tr>
+    <tr><td><strong>OFT</strong></td><td>직교 변환 $R\in O(d)$</td><td>낮음</td><td>어댑터 파일</td><td>sd-scripts</td></tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 6: Hyperparameter 브리지 -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="hyperparams" class="tab-panel" data-tab-group="master">
+<h2>6) Hyperparameter 브리지 — 코드 파라미터 ↔ 수식 매핑</h2>
+<p>sampler_site의 KSampler 브리지처럼, 훈련 설정의 각 파라미터가 수학적으로 어떤 역할을 하는지 매핑합니다.</p>
+
+<div class="tabs mini" data-tab-group="hp-sub">
+  <button class="tab-btn active" data-tab-group="hp-sub" data-tab-target="hp-core">핵심 파라미터</button>
+  <button class="tab-btn" data-tab-group="hp-sub" data-tab-target="hp-lora">LoRA 파라미터</button>
+  <button class="tab-btn" data-tab-group="hp-sub" data-tab-target="hp-noise">노이즈 파라미터</button>
+  <button class="tab-btn" data-tab-group="hp-sub" data-tab-target="hp-data">데이터 파라미터</button>
+</div>
+
+<section id="hp-core" class="tab-panel active" data-tab-group="hp-sub">
+<h3>핵심 훈련 파라미터</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>수식 관점</th><th>권장 범위</th></tr></thead>
+  <tbody>
+    <tr><td><strong>learning_rate</strong></td><td><code>--learning_rate 2e-6</code></td><td><code>lr = 1e-4</code></td><td><code>--learning_rate 1e-4</code></td><td>$$\eta\text{ in }\theta_{t+1}=\theta_t-\eta\nabla\mathcal{L}$$</td><td>LoRA: 1e-4~1e-3<br>FT: 1e-6~1e-5</td></tr>
+    <tr><td><strong>batch_size</strong></td><td><code>--train_batch_size 1</code></td><td><code>micro_batch_size_per_gpu = 1</code></td><td>DataLoader(batch_size=1)</td><td>$$|B|:\quad \hat g=\frac{1}{|B|}\sum_{i\in B}\nabla\ell_i$$</td><td>1~8 (VRAM 의존)</td></tr>
+    <tr><td><strong>grad_accum</strong></td><td><code>--gradient_accumulation_steps</code></td><td><code>gradient_accumulation_steps</code></td><td>Accelerate 설정</td><td>$$\text{effBatch}=\text{batch}\times N_\text{acc}\times N_\text{gpu}$$</td><td>1~8</td></tr>
+    <tr><td><strong>max_grad_norm</strong></td><td><code>--max_grad_norm 1.0</code></td><td><code>gradient_clipping = 1.0</code></td><td>기본 미지원</td><td>$$g'\gets g\cdot\frac{c}{\max(c,\|g\|)}\quad(c=\text{max\_norm})$$</td><td>1.0</td></tr>
+    <tr><td><strong>weight_decay</strong></td><td><code>optimizer_args: weight_decay=0.01</code></td><td><code>weight_decay = 0.01</code></td><td><code>--weight_decay 0.01</code></td><td>$$\theta\gets\theta(1-\eta\lambda)\quad\lambda=\text{wd}$$</td><td>0.01~0.1</td></tr>
+    <tr><td><strong>seed</strong></td><td><code>--seed</code></td><td>DS seed</td><td><code>--seed</code></td><td>$\omega\in\Omega$ 결정 → 재현성</td><td>고정 권장</td></tr>
+    <tr><td><strong>epochs / steps</strong></td><td><code>--max_train_epochs / steps</code></td><td><code>epochs / max_steps</code></td><td><code>--num_epochs</code></td><td>$T$: 총 최적화 반복 횟수</td><td>작업 의존</td></tr>
+    <tr><td><strong>mixed_precision</strong></td><td><code>--mixed_precision bf16</code></td><td><code>dtype = "bfloat16"</code></td><td>Accelerate 설정</td><td>$$\theta\in\text{FP32/BF16},\; g\in\text{FP16/BF16}$$</td><td>bf16 (A100+)</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="hp-lora" class="tab-panel" data-tab-group="hp-sub">
+<h3>LoRA 전용 파라미터</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>수식 관점</th></tr></thead>
+  <tbody>
+    <tr><td><strong>rank (dim)</strong></td><td><code>--network_dim 16</code></td><td><code>rank = 16</code></td><td><code>--lora_rank 32</code></td><td>$$r:\;\Delta W=\frac{\alpha}{r}BA,\;B\in\mathbb{R}^{d\times r}$$</td></tr>
+    <tr><td><strong>alpha</strong></td><td><code>--network_alpha 1</code></td><td><code>alpha = rank</code> (강제)</td><td><code>lora_alpha = rank</code></td><td>$$\alpha/r\text{ 가 실효 스케일}$$</td></tr>
+    <tr><td><strong>dropout</strong></td><td><code>--network_dropout 0.1</code></td><td><code>dropout = 0</code></td><td>기본 0</td><td>$$p:\;\Delta W\cdot\text{Bernoulli}(1-p)$$</td></tr>
+    <tr><td><strong>target_modules</strong></td><td><code>--network_args ...</code></td><td>자동 (all Linear)</td><td><code>--lora_target_modules auto</code></td><td>$\{W_i:\text{LoRA 적용 레이어}\}$</td></tr>
+    <tr><td><strong>train_unet_only</strong></td><td><code>--network_train_unet_only</code></td><td>기본 (TE 캐싱)</td><td>기본 (TE 캐싱)</td><td>$\theta_\text{train}\subset\theta_\text{unet}$</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="hp-noise" class="tab-panel" data-tab-group="hp-sub">
+<h3>노이즈 / Flow Matching 파라미터</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>수식 관점</th></tr></thead>
+  <tbody>
+    <tr><td><strong>noise_offset</strong></td><td><code>--noise_offset 0.1</code></td><td>미지원</td><td>미지원</td><td>$$\epsilon'=\epsilon+\delta\mathcal{N}(0,1)\cdot\mathbf{1}_C$$</td></tr>
+    <tr><td><strong>discrete_flow_shift</strong></td><td><code>--discrete_flow_shift 3.0</code></td><td>모델별 기본값</td><td>스케줄러 내장</td><td>$$t'=\frac{s\cdot t}{1+(s-1)\cdot t}\quad s=\text{shift}$$</td></tr>
+    <tr><td><strong>timestep_sampling</strong></td><td><code>--timestep_sampling sigmoid</code></td><td><code>timestep_sampling = logit_normal</code></td><td>FlowMatchScheduler</td><td>$p(t)$ 분포 선택</td></tr>
+    <tr><td><strong>sigmoid_scale</strong></td><td><code>--sigmoid_scale 1.0</code></td><td>미지원</td><td>미지원</td><td>$$t=\sigma(s\cdot z)$$ 의 $s$</td></tr>
+    <tr><td><strong>min_snr_gamma</strong></td><td><code>--min_snr_gamma 5</code></td><td><code>min_snr_gamma = 5</code></td><td>미지원</td><td>$$w(t)=\min(\text{SNR},\gamma)/\text{SNR}$$</td></tr>
+    <tr><td><strong>v_parameterization</strong></td><td><code>--v_parameterization</code></td><td><code>v_pred = true</code></td><td>미지원 (FM만)</td><td>$$\text{target}=\sqrt{\bar\alpha}\epsilon-\sqrt{1-\bar\alpha}x_0$$</td></tr>
+    <tr><td><strong>weighting_scheme</strong></td><td><code>--weighting_scheme logit_normal</code></td><td>모델별</td><td>bell-shaped 기본</td><td>$w(t)$ 가중치 함수</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="hp-data" class="tab-panel" data-tab-group="hp-sub">
+<h3>데이터 파라미터</h3>
+<table>
+  <thead><tr><th>파라미터</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th><th>효과</th></tr></thead>
+  <tbody>
+    <tr><td><strong>resolution</strong></td><td><code>--resolution 1024</code></td><td><code>resolutions = [[1024, 1024]]</code></td><td><code>--max_pixels</code></td><td>학습 이미지 해상도</td></tr>
+    <tr><td><strong>AR bucket</strong></td><td><code>--enable_bucket</code></td><td><code>enable_ar_bucket = true</code></td><td>동적 해상도</td><td>종횡비 보존 다해상도 학습</td></tr>
+    <tr><td><strong>cache_latents</strong></td><td><code>--cache_latents_to_disk</code></td><td>자동 사전 캐싱</td><td><code>sft:data_process</code> 단계</td><td>VAE 인코딩 1회만 수행</td></tr>
+    <tr><td><strong>caption_shuffle</strong></td><td><code>--shuffle_caption</code></td><td><code>cache_shuffle_num = 3</code></td><td>미지원</td><td>태그 순서 랜덤화 → 데이터 증강</td></tr>
+    <tr><td><strong>uncond_fraction</strong></td><td>미지원 (별도 구현)</td><td><code>uncond_fraction = 0.1</code></td><td>미지원</td><td>CFG 드롭아웃: $P(\text{empty caption})$</td></tr>
+    <tr><td><strong>num_repeats</strong></td><td>폴더명 인코딩</td><td><code>num_repeats = 10</code></td><td>미지원</td><td>데이터 반복 횟수</td></tr>
+    <tr><td><strong>frame_buckets</strong></td><td>미지원</td><td><code>frame_buckets = [1,33,65]</code></td><td>설정 가능</td><td>비디오 프레임 버킷팅</td></tr>
+  </tbody>
+</table>
+</section>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 7: 메모리 최적화 -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="memory-opt" class="tab-panel" data-tab-group="master">
+<h2>7) 메모리 최적화 카탈로그</h2>
+<p>훈련 VRAM 사용량: $\text{VRAM}=\underbrace{|\theta|}_\text{모델}+\underbrace{|g|}_\text{기울기}+\underbrace{|m,v|}_\text{옵티마이저}+\underbrace{|a|}_\text{활성화}+\underbrace{|x|}_\text{데이터}$</p>
+
+<div class="formula">
+$$\text{Full FT VRAM (FP32)}\approx 4|\theta|+4|g|+8|\theta|_\text{states}+|\text{activations}|\approx 16|\theta|+|a|$$
+$$\text{LoRA VRAM}\approx 4|\theta|_\text{frozen}+4(r\cdot\Sigma d_i)+\text{optim states for LoRA only}$$
+</div>
+
+<table>
+  <thead><tr><th>기법</th><th>VRAM 절감 대상</th><th>원리</th><th>sd-scripts</th><th>diffusion-pipe</th><th>DiffSynth</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Mixed Precision (BF16)</strong></td><td>모델+기울기</td><td>$\theta,g\in\text{BF16}\;(2\text{B/param})$</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td></tr>
+    <tr><td><strong>FP8 Quantization</strong></td><td>모델 (frozen)</td><td>$\theta_\text{frozen}\in\text{FP8}\;(1\text{B/param})$</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td></tr>
+    <tr><td><strong>NF4 Quantization</strong></td><td>모델 (frozen)</td><td>$\theta_\text{frozen}\in\text{NF4}\;(0.5\text{B/param})$</td><td><span class="badge no">✗</span></td><td><span class="badge partial">△</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>Gradient Checkpointing</strong></td><td>활성화</td><td>역전파 시 재계산. $|a|\to O(\sqrt{L})$</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td></tr>
+    <tr><td><strong>Unsloth Checkpointing</strong></td><td>활성화→CPU</td><td>활성화를 CPU RAM으로 오프로드</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge partial">△</span></td></tr>
+    <tr><td><strong>xformers / SDPA</strong></td><td>어텐션 메모리</td><td>$O(N)$ vs $O(N^2)$ 어텐션</td><td><span class="badge yes">✓</span></td><td>SDPA기본</td><td>SDPA기본</td></tr>
+    <tr><td><strong>8-bit Optimizer</strong></td><td>옵티마이저 상태</td><td>$|m,v|: 8\text{B/param}\to 2\text{B/param}$</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>Optimizer CPU Offload</strong></td><td>옵티마이저→CPU</td><td>상태를 CPU RAM에 유지</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>Gradient Release</strong></td><td>기울기 메모리</td><td>파라미터별 즉시 업데이트 후 해제</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>Block Swapping</strong></td><td>모델 블록→CPU</td><td>DiT 블록 N개를 CPU로 순환 교체</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>Fused Backward Pass</strong></td><td>기울기+옵티마이저</td><td>backward과 optimizer step 결합</td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>DeepSpeed ZeRO</strong></td><td>모든 상태 분산</td><td>옵티마이저/기울기/파라미터 GPU간 샤딩</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td></tr>
+    <tr><td><strong>Pipeline Parallelism</strong></td><td>모델 분할</td><td>모델을 GPU간 레이어 단위 분할</td><td><span class="badge no">✗</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td></tr>
+    <tr><td><strong>Latent Caching</strong></td><td>VAE 메모리</td><td>VAE 인코딩 사전 수행→디스크 캐시</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td></tr>
+    <tr><td><strong>TE Output Caching</strong></td><td>텍스트 인코더</td><td>텍스트 임베딩 사전 캐싱</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td></tr>
+    <tr><td><strong>torch.compile</strong></td><td>처리량 (간접)</td><td>JIT 최적화로 커널 퓨전</td><td><span class="badge yes">✓</span></td><td><span class="badge yes">✓</span></td><td><span class="badge no">✗</span></td></tr>
+  </tbody>
+</table>
+
+<h3>VRAM 예산 계산기 (개념)</h3>
+<div class="codebox"># VRAM 추정 공식 (개념적)
+model_params = 12e9          # 예: 12B 파라미터 모델
+dtype_bytes = 2              # BF16: 2, FP32: 4, FP8: 1
+
+# Full Fine-Tune
+model_vram = model_params * dtype_bytes          # 24 GB (BF16)
+grad_vram = model_params * dtype_bytes           # 24 GB
+optim_vram = model_params * 8                    # 96 GB (AdamW FP32 states)
+# Total ≈ 144 GB + activations → 멀티 GPU 필수
+
+# LoRA (r=16, ~0.5% params trainable)
+lora_params = model_params * 0.005
+frozen_model = model_params * 1    # FP8이면 12 GB
+lora_grad = lora_params * dtype_bytes            # 0.12 GB
+lora_optim = lora_params * 8                     # 0.48 GB
+# Total ≈ 12.6 GB + activations → 단일 24GB GPU 가능
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TAB 8: 코드 매핑 -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<section id="code-map" class="tab-panel" data-tab-group="master">
+<h2>8) 코드 매핑 — 파일 경로 가이드</h2>
+<p>각 코드베이스에서 훈련 관련 핵심 파일의 위치와 역할을 매핑합니다.</p>
+
+<div class="tabs mini" data-tab-group="code-sub">
+  <button class="tab-btn active" data-tab-group="code-sub" data-tab-target="code-sdscripts">sd-scripts</button>
+  <button class="tab-btn" data-tab-group="code-sub" data-tab-target="code-diffpipe">diffusion-pipe</button>
+  <button class="tab-btn" data-tab-group="code-sub" data-tab-target="code-diffsynth">DiffSynth-Studio</button>
+</div>
+
+<section id="code-sdscripts" class="tab-panel active" data-tab-group="code-sub">
+<h3>sd-scripts 파일 매핑</h3>
+<table>
+  <thead><tr><th>파일</th><th>역할</th><th>핵심 함수/클래스</th></tr></thead>
+  <tbody>
+    <tr><td><code>library/train_util.py</code></td><td>훈련 인자 파싱, 데이터셋, 유틸리티</td><td><code>add_training_arguments()</code>, <code>add_optimizer_arguments()</code></td></tr>
+    <tr><td><code>library/custom_train_functions.py</code></td><td>손실 함수, 가중치, 노이즈 변형</td><td><code>apply_snr_weight()</code>, <code>apply_debiased_estimation()</code></td></tr>
+    <tr><td><code>library/sd3_train_utils.py</code></td><td>SD3/Flux 훈련 유틸리티</td><td><code>get_sigmas()</code>, <code>compute_loss_weighting()</code></td></tr>
+    <tr><td><code>networks/lora.py</code></td><td>LoRA 구현 (SD1.x/SDXL)</td><td><code>LoRANetwork</code>, <code>LoRAModule</code></td></tr>
+    <tr><td><code>networks/lora_flux.py</code></td><td>Flux/Chroma LoRA</td><td><code>LoRANetwork</code></td></tr>
+    <tr><td><code>networks/lora_sd3.py</code></td><td>SD3 LoRA</td><td><code>LoRANetwork</code></td></tr>
+    <tr><td><code>flux_train.py</code></td><td>Flux full fine-tune 진입점</td><td><code>train()</code></td></tr>
+    <tr><td><code>flux_train_network.py</code></td><td>Flux LoRA 훈련 진입점</td><td><code>FluxNetworkTrainer</code></td></tr>
+    <tr><td><code>train_network.py</code></td><td>SD/SDXL LoRA 기본 트레이너</td><td><code>NetworkTrainer</code></td></tr>
+    <tr><td><code>train_db.py</code></td><td>DreamBooth 진입점</td><td><code>train()</code></td></tr>
+    <tr><td><code>sdxl_train.py</code></td><td>SDXL fine-tune/DB 진입점</td><td><code>train()</code></td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="code-diffpipe" class="tab-panel" data-tab-group="code-sub">
+<h3>diffusion-pipe 파일 매핑</h3>
+<table>
+  <thead><tr><th>파일</th><th>역할</th><th>핵심 함수/클래스</th></tr></thead>
+  <tbody>
+    <tr><td><code>train.py</code></td><td>메인 훈련 진입점</td><td><code>train()</code>, <code>create_optimizer()</code></td></tr>
+    <tr><td><code>models/base.py</code></td><td>파이프라인 기본 클래스</td><td><code>BasePipeline</code>, <code>ComfyPipeline</code>, <code>loss()</code></td></tr>
+    <tr><td><code>models/flux.py</code></td><td>Flux 모델 파이프라인</td><td><code>FluxPipeline</code></td></tr>
+    <tr><td><code>models/wan.py</code></td><td>Wan 비디오 파이프라인</td><td><code>WanPipeline</code></td></tr>
+    <tr><td><code>models/sdxl.py</code></td><td>SDXL 파이프라인</td><td><code>SDXLPipeline</code></td></tr>
+    <tr><td><code>optimizers/generic_optim.py</code></td><td>Muon/AdaMuon/NorMuon 등</td><td><code>GenericOptim</code></td></tr>
+    <tr><td><code>optimizers/adamw_8bit.py</code></td><td>Kahan 보정 8-bit Adam</td><td><code>AdamW8bitKahan</code></td></tr>
+    <tr><td><code>optimizers/automagic.py</code></td><td>적응형 LR 옵티마이저</td><td><code>Automagic</code></td></tr>
+    <tr><td><code>utils/dataset.py</code></td><td>데이터셋, AR 버킷, 캐싱</td><td><code>Dataset</code>, <code>create_buckets()</code></td></tr>
+    <tr><td><code>configs/*.toml</code></td><td>훈련 설정 파일</td><td>TOML 포맷 설정</td></tr>
+  </tbody>
+</table>
+</section>
+
+<section id="code-diffsynth" class="tab-panel" data-tab-group="code-sub">
+<h3>DiffSynth-Studio 파일 매핑</h3>
+<table>
+  <thead><tr><th>파일</th><th>역할</th><th>핵심 함수/클래스</th></tr></thead>
+  <tbody>
+    <tr><td><code>diffsynth/diffusion/runner.py</code></td><td>훈련 루프 실행기</td><td><code>launch_training_task()</code></td></tr>
+    <tr><td><code>diffsynth/diffusion/training_module.py</code></td><td>훈련 모듈 기본 클래스</td><td><code>DiffusionTrainingModule</code></td></tr>
+    <tr><td><code>diffsynth/diffusion/loss.py</code></td><td>손실 함수 정의</td><td><code>FlowMatchSFTLoss</code>, <code>DirectDistillLoss</code></td></tr>
+    <tr><td><code>diffsynth/diffusion/flow_match.py</code></td><td>Flow matching 스케줄러</td><td><code>FlowMatchScheduler</code>, <code>training_weight()</code></td></tr>
+    <tr><td><code>diffsynth/diffusion/parsers.py</code></td><td>CLI 인자 파싱</td><td><code>add_training_arguments()</code></td></tr>
+    <tr><td><code>diffsynth/diffusion/logger.py</code></td><td>체크포인트 저장</td><td><code>ModelLogger</code></td></tr>
+    <tr><td><code>diffsynth/core/data/unified_dataset.py</code></td><td>통합 데이터셋</td><td><code>UnifiedDataset</code></td></tr>
+    <tr><td><code>diffsynth/core/data/operators.py</code></td><td>데이터 연산자 파이프라인</td><td><code>LoadImage</code>, <code>ImageCropAndResize</code></td></tr>
+    <tr><td><code>diffsynth/utils/lora/</code></td><td>LoRA 유틸리티</td><td><code>GeneralLoRALoader</code>, <code>merge_lora()</code></td></tr>
+    <tr><td><code>diffsynth/models/flux_dit.py</code></td><td>Flux DiT 모델</td><td><code>FluxDiT</code></td></tr>
+    <tr><td><code>diffsynth/models/wan_video_dit.py</code></td><td>Wan 비디오 DiT</td><td><code>WanModel</code></td></tr>
+    <tr><td><code>examples/*/model_training/train.py</code></td><td>아키텍처별 훈련 스크립트</td><td><code>*TrainingModule</code></td></tr>
+  </tbody>
+</table>
+</section>
+
+<h3 style="margin-top:18px">코드베이스 아키텍처 비교</h3>
+<div class="grid3">
+  <div class="box">
+    <h3 style="color:#28a745">sd-scripts</h3>
+    <p class="small"><strong>강점:</strong> 가장 많은 옵티마이저/스케줄러. DDPM 계열 (SD1.x/SDXL) 최적화. DreamBooth/TI 지원.</p>
+    <p class="small"><strong>분산학습:</strong> HF Accelerate + DeepSpeed</p>
+    <p class="small"><strong>설정:</strong> CLI 인자 + TOML</p>
+  </div>
+  <div class="box">
+    <h3 style="color:#007bff">diffusion-pipe</h3>
+    <p class="small"><strong>강점:</strong> 최다 아키텍처 (23+). DeepSpeed Pipeline Parallelism. 고급 옵티마이저 (Muon, Automagic). 비디오 모델 전문.</p>
+    <p class="small"><strong>분산학습:</strong> DeepSpeed Pipeline + DP</p>
+    <p class="small"><strong>설정:</strong> TOML 설정 파일</p>
+  </div>
+  <div class="box">
+    <h3 style="color:#ffc107">DiffSynth-Studio</h3>
+    <p class="small"><strong>강점:</strong> 깔끔한 코드 구조. 데이터 연산자 파이프라인. 증류/경로모방 손실. 2단계 학습 (data_process + train).</p>
+    <p class="small"><strong>분산학습:</strong> HF Accelerate + ZeRO</p>
+    <p class="small"><strong>설정:</strong> CLI 인자 + 쉘 스크립트</p>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- SCRIPT -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<script>
+function activateTab(group, targetId, updateHash){
+  const btns = [...document.querySelectorAll(`.tab-btn[data-tab-group="${group}"]`)];
+  const panels = [...document.querySelectorAll(`.tab-panel[data-tab-group="${group}"]`)];
+  btns.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === targetId));
+  panels.forEach(p => p.classList.toggle('active', p.id === targetId));
+  if (updateHash && group === 'master') {
+    history.replaceState(null, '', `#${targetId}`);
+  }
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    window.MathJax.typesetPromise();
+  }
+}
+
+const tabGroups = [...new Set(
+  [...document.querySelectorAll('.tab-btn[data-tab-group]')].map(b => b.dataset.tabGroup)
+)];
+tabGroups.forEach(group => {
+  const btns = [...document.querySelectorAll(`.tab-btn[data-tab-group="${group}"]`)];
+  if (!btns.length) return;
+  btns.forEach(b => {
+    b.addEventListener('click', () => activateTab(group, b.dataset.tabTarget, group === 'master'));
+  });
+  const initial = btns.find(b => b.classList.contains('active')) || btns[0];
+  activateTab(group, initial.dataset.tabTarget, false);
+});
+
+if (location.hash) {
+  const id = location.hash.slice(1);
+  const masterBtn = document.querySelector(`.tab-btn[data-tab-group="master"][data-tab-target="${id}"]`);
+  if (masterBtn) activateTab('master', id, false);
+}
+
+/* ── Optimizer filter ── */
+const optRows = [...document.querySelectorAll('.opt-row')];
+const optQ = document.getElementById('optSearchInput');
+const optFF = document.getElementById('optFamilyFilter');
+const optSF = document.getElementById('optSourceFilter');
+function applyOptFilter(){
+  if (!optQ || !optFF || !optSF) return;
+  const t = optQ.value.trim().toLowerCase();
+  const f = optFF.value;
+  const s = optSF.value;
+  optRows.forEach(r => {
+    const okQ = !t || r.dataset.name.toLowerCase().includes(t);
+    const okF = f === 'all' || r.dataset.family === f;
+    const okS = s === 'all' || (r.dataset.sources && r.dataset.sources.includes(s));
+    r.style.display = (okQ && okF && okS) ? '' : 'none';
+  });
+}
+if (optQ) { optQ.addEventListener('input', applyOptFilter); }
+if (optFF) { optFF.addEventListener('change', applyOptFilter); }
+if (optSF) { optSF.addEventListener('change', applyOptFilter); }
+
+/* ── Architecture filter ── */
+const archRows = [...document.querySelectorAll('.arch-row')];
+const archQ = document.getElementById('archSearchInput');
+const archTF = document.getElementById('archTypeFilter');
+const archBF = document.getElementById('archBackboneFilter');
+function applyArchFilter(){
+  if (!archQ || !archTF || !archBF) return;
+  const t = archQ.value.trim().toLowerCase();
+  const tf = archTF.value;
+  const bf = archBF.value;
+  archRows.forEach(r => {
+    const okQ = !t || r.dataset.name.toLowerCase().includes(t);
+    const okT = tf === 'all' || r.dataset.type === tf;
+    const okB = bf === 'all' || r.dataset.backbone === bf;
+    r.style.display = (okQ && okT && okB) ? '' : 'none';
+  });
+}
+if (archQ) { archQ.addEventListener('input', applyArchFilter); }
+if (archTF) { archTF.addEventListener('change', applyArchFilter); }
+if (archBF) { archBF.addEventListener('change', applyArchFilter); }
+</script>
+
+</article></div></body></html>

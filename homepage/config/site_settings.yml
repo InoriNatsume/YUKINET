@@ -1,0 +1,11 @@
+site:
+  title: "YUKINET"
+  description: "AI 딸깍질이 수학과 코드를 만날 때, 이야기는 시작된다"
+
+repo_versions:
+  comfyui: "0.14.2"
+  sdscripts: "0.10.1"
+  diffsynth: "1.1.9"
+  diffusers: "0.36.0"
+  transformers: "5.2.0"
+  diffusion_pipe: "0.1.0"

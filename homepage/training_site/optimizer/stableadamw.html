@@ -1,0 +1,30 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>StableAdamW — Training Optimizer</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / optimizer / stableadamw</p>
+<h1>StableAdamW — Stabilized AdamW</h1>
+<div class="chips">
+  <span class="chip">분류: Adam 계열 (안정화)</span>
+  <span class="chip tag diffpipe">diffusion-pipe ✓</span>
+</div>
+
+<h2>수학 정의</h2>
+<p>Wortsman et al. AdamW의 adaptive learning rate를 RMS 정규화하여 안정화.</p>
+<div class="formula">
+$$\text{RMS}(v_t) = \sqrt{\frac{1}{d}\sum_{i=1}^{d} \hat{v}_{t,i}}$$
+$$u_t = \frac{\hat{m}_t}{\text{RMS}(v_t) \cdot \max\!\left(1, \frac{\|\hat{m}_t / \sqrt{\hat{v}_t}\|_\infty}{\text{RMS}(v_t)}\right)}$$
+</div>
+<p>큰 기울기가 들어와도 업데이트 크기가 폭발하지 않도록 제한.</p>
+
+<h2>언제 사용?</h2>
+<div class="box">
+<ul class="list">
+  <li>대규모 모델에서 학습 초기 불안정 발생 시</li>
+  <li>기울기 크기의 분산이 클 때 (다양한 해상도, 비디오 등)</li>
+  <li>BF16 + Kahan이 활성화된 <code>optimi</code> 구현 사용</li>
+</ul>
+</div>
+
+<h2>코드 매핑</h2>
+<div class="codebox"># diffusion-pipe: type = "stableadamw"
+from optimi import StableAdamW
+optimizer = StableAdamW(params, lr=lr, betas=betas)</div>
+</article></div></body></html>

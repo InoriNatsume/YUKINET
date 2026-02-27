@@ -1,0 +1,66 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>Prodigy — Training Optimizer</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / optimizer / prodigy</p>
+<h1>Prodigy — Adaptive Learning Rate Estimation</h1>
+<div class="chips">
+  <span class="chip">분류: 적응형 (D-Adaptation)</span>
+  <span class="chip tag sdscripts">sd-scripts ✓</span>
+  <span class="chip tag diffpipe">diffusion-pipe ✓</span>
+</div>
+
+<h2>수학 정의</h2>
+<p>Mishchenko &amp; Defazio (2023). 학습률의 "최적 크기" $d^*$를 online으로 추정.</p>
+<div class="formula">
+$$d_t = d_{t-1} + \eta_\text{lr} \cdot \frac{|\langle g_t, s_t \rangle|}{d_{t-1} \|s_t\|^2}$$
+$$\text{effective LR} = d_t \cdot \eta_\text{lr}$$
+</div>
+<p>여기서 $s_t$는 누적 그래디언트 합 $\sum_{i \leq t} g_i$의 가중 추정. $d_t$는 <strong>distance to solution</strong> 추정치.</p>
+
+<h2>핵심 아이디어</h2>
+<div class="box">
+<p>전통적 학습률 튜닝: "lr=1e-4가 좋은가 5e-5가 좋은가?" 를 수동 실험.</p>
+<p>Prodigy: $\eta_\text{lr}\approx 1.0$으로 두면, $d_t$가 자동으로 최적 학습률 스케일을 추정합니다.</p>
+<div class="formula">$$d_0 \approx 0 \;\longrightarrow\; d_T \approx d^* \approx \|\theta^*-\theta_0\|$$</div>
+<p class="small">$d^*$는 초기 파라미터에서 최적 파라미터까지의 "거리". 이를 그래디언트 내적으로 추정.</p>
+</div>
+
+<h2>파라미터</h2>
+<table>
+  <thead><tr><th>파라미터</th><th>기본값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><code>lr</code></td><td>1.0</td><td>스케일링 계수. 1.0 권장</td></tr>
+    <tr><td><code>d_coef</code></td><td>1.0</td><td>$d$ 초기화 계수</td></tr>
+    <tr><td><code>growth_rate</code></td><td>∞</td><td>$d_t$ 최대 성장 비율 (안정화용)</td></tr>
+    <tr><td><code>betas</code></td><td>(0.9, 0.999)</td><td>Adam 모멘텀 파라미터</td></tr>
+    <tr><td><code>weight_decay</code></td><td>0</td><td>Decoupled weight decay</td></tr>
+  </tbody>
+</table>
+
+<h2>장점 vs 단점</h2>
+<div class="grid2">
+  <div class="box">
+    <h3>장점</h3>
+    <ul class="list">
+      <li>학습률 수동 탐색 불필요</li>
+      <li>다양한 모델/데이터에 자동 적응</li>
+      <li>LoRA 훈련에서 특히 편리</li>
+    </ul>
+  </div>
+  <div class="box">
+    <h3>단점</h3>
+    <ul class="list">
+      <li>$d_t$ 수렴까지 불안정할 수 있음</li>
+      <li>추가 상태 변수 → 메모리 약간 증가</li>
+      <li>학습 초기 oscillation 가능</li>
+    </ul>
+  </div>
+</div>
+
+<h2>코드 매핑</h2>
+<div class="codebox"># sd-scripts: --optimizer_type Prodigy --learning_rate 1.0
+from prodigyopt import Prodigy
+optimizer = Prodigy(params, lr=1.0, d_coef=1.0)
+
+# diffusion-pipe: type = "Prodigy" (pytorch-optimizer 라이브러리)
+from pytorch_optimizer import Prodigy
+optimizer = Prodigy(params, lr=1.0)</div>
+</article></div></body></html>

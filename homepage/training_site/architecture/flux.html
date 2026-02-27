@@ -1,0 +1,109 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>FLUX.1 — Architecture</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / architecture / flux</p>
+<h1>FLUX.1 — DiT 기반 Flow Matching</h1>
+<div class="chips">
+  <span class="chip">백본: DiT (Dual-stream → Single-stream)</span>
+  <span class="chip">확산: Flow Matching (연속)</span>
+  <span class="chip">파라미터: ~12B</span>
+  <span class="chip">유형: Image</span>
+  <span class="chip tag sdscripts">sd-scripts ✓</span>
+  <span class="chip tag diffpipe">diffusion-pipe ✓</span>
+  <span class="chip tag diffsynth">DiffSynth-Studio ✓</span>
+</div>
+
+<h2>아키텍처 구조</h2>
+<div class="formula">$$z_0 \xrightarrow{x_t=(1-t)z_0+t\epsilon} x_t \xrightarrow{\text{DiT}_\theta(x_t,t,c_\text{CLIP},c_\text{T5})} v_\theta \approx \epsilon-z_0$$</div>
+
+<h3>DiT 블록 구조</h3>
+<table>
+  <thead><tr><th>구간</th><th>블록 수</th><th>구조</th><th>특징</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Dual-stream</strong></td><td>19</td><td>이미지 스트림 ↔ 텍스트 스트림 병렬 + cross-attention</td><td>이미지와 텍스트가 독립 어텐션 후 교차</td></tr>
+    <tr><td><strong>Single-stream</strong></td><td>38</td><td>이미지+텍스트 토큰 concat → self-attention</td><td>통합 어텐션으로 깊은 융합</td></tr>
+  </tbody>
+</table>
+
+<h3>텍스트 인코더</h3>
+<div class="grid2">
+  <div class="box"><strong>CLIP-L</strong>: 전역 의미 벡터 (pooled)<br><span class="small">조건 임베딩 $c_\text{CLIP}\in\mathbb{R}^{768}$</span></div>
+  <div class="box"><strong>T5-XXL</strong>: 상세 토큰별 임베딩<br><span class="small">$c_\text{T5}\in\mathbb{R}^{L\times 4096}$, 최대 512 토큰</span></div>
+</div>
+
+<h2>Flow Matching 훈련 목적함수</h2>
+<div class="formula">
+$$\mathcal{L}_\text{FM}=\mathbb{E}_{z_0,\epsilon,t}\left[w(t)\cdot\|v_\theta(x_t,t,c)-(\epsilon-z_0)\|^2\right]$$
+</div>
+<div class="formula">$$x_t=(1-t)\,z_0+t\,\epsilon,\quad t\in[0,1]$$</div>
+
+<h2>Timestep 샘플링 전략 비교</h2>
+<table>
+  <thead><tr><th>전략</th><th>코드 플래그</th><th>수식</th><th>코드베이스</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Sigmoid</strong></td><td><code>timestep_sampling=sigmoid</code></td><td>$t=\sigma(s\cdot z)$, $z\sim\mathcal{N}$</td><td>sd-scripts</td></tr>
+    <tr><td><strong>Flux Shift</strong></td><td><code>timestep_sampling=flux_shift</code></td><td>$\mu=0.5+\frac{\text{area}}{256^2}\cdot 1.15$<br>$t=\sigma(\mu+s\cdot z)$</td><td>sd-scripts</td></tr>
+    <tr><td><strong>Logit-Normal</strong></td><td><code>timestep_sampling=logit_normal</code></td><td>$t=\sigma(\mu+s\cdot z)$</td><td>diffusion-pipe, DiffSynth</td></tr>
+    <tr><td><strong>Shift</strong></td><td><code>discrete_flow_shift=3.0</code></td><td>$t'=\frac{s\cdot t}{1+(s-1)t}$</td><td>sd-scripts</td></tr>
+  </tbody>
+</table>
+
+<h2>코드베이스별 특수 기능</h2>
+<div class="grid3">
+  <div class="box">
+    <h3 style="color:#28a745">sd-scripts</h3>
+    <ul class="list">
+      <li>Full FT + LoRA + ControlNet</li>
+      <li><code>--blocks_to_swap</code> (블록 CPU 오프로드)</li>
+      <li><code>--fp8_base</code> (FP8 양자화)</li>
+      <li><code>--model_prediction_type</code>: raw / additive / sigma_scaled</li>
+      <li>Chroma (<code>--model_type chroma</code>) 공유</li>
+    </ul>
+  </div>
+  <div class="box">
+    <h3 style="color:#007bff">diffusion-pipe</h3>
+    <ul class="list">
+      <li>Full FT + LoRA</li>
+      <li>Pipeline parallelism</li>
+      <li>Block swapping (LoRA)</li>
+      <li>FP8 transformer dtype</li>
+      <li><code>fuse_adapters</code>: 기존 LoRA 병합 후 새 LoRA</li>
+      <li>Flux Kontext 지원</li>
+    </ul>
+  </div>
+  <div class="box">
+    <h3 style="color:#ffc107">DiffSynth-Studio</h3>
+    <ul class="list">
+      <li>LoRA (PEFT)</li>
+      <li>SFT + Distillation</li>
+      <li>2단계 학습 (data_process + train)</li>
+      <li>Civitai 포맷 변환 지원</li>
+      <li>FP8 모델 로딩</li>
+      <li>preset_lora_path (기존 LoRA 퓨전)</li>
+    </ul>
+  </div>
+</div>
+
+<h2>LoRA 타겟 모듈</h2>
+<div class="codebox"># sd-scripts (networks/lora_flux.py)
+# Dual-stream blocks: img_attn.qkv, img_attn.proj, img_mlp.0, img_mlp.2
+#                     txt_attn.qkv, txt_attn.proj, txt_mlp.0, txt_mlp.2
+# Single-stream blocks: linear1, linear2, modulation.lin
+
+# DiffSynth-Studio 자동 감지 (min weight dim >= 512):
+# a_to_qkv, b_to_qkv, ff_a.0, ff_a.2, ff_b.0, ff_b.2,
+# a_to_out, b_to_out, proj_out, norm.linear, ...
+
+# diffusion-pipe: PEFT auto-detect all nn.Linear in target blocks</div>
+
+<h2>권장 설정</h2>
+<table>
+  <thead><tr><th>설정</th><th>LoRA</th><th>Full FT</th></tr></thead>
+  <tbody>
+    <tr><td>Learning Rate</td><td>1e-4 ~ 5e-4</td><td>1e-6 ~ 5e-6</td></tr>
+    <tr><td>LoRA Rank</td><td>16~64</td><td>—</td></tr>
+    <tr><td>discrete_flow_shift</td><td>3.0 (dev), 1.0 (schnell)</td><td>동일</td></tr>
+    <tr><td>timestep_sampling</td><td>sigmoid (scale=1.0)</td><td>동일</td></tr>
+    <tr><td>Mixed Precision</td><td>BF16</td><td>BF16</td></tr>
+    <tr><td>Gradient Checkpointing</td><td>권장</td><td>필수</td></tr>
+  </tbody>
+</table>
+</article></div></body></html>

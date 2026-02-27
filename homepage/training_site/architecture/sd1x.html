@@ -1,0 +1,62 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>SD 1.x/2.x — Architecture</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / architecture / sd1x</p>
+<h1>Stable Diffusion 1.x / 2.x — UNet 기반 Latent Diffusion</h1>
+<div class="chips">
+  <span class="chip">백본: UNet</span>
+  <span class="chip">확산: DDPM (이산)</span>
+  <span class="chip">유형: Image</span>
+  <span class="chip tag sdscripts">sd-scripts ✓</span>
+</div>
+
+<h2>아키텍처 구조</h2>
+<div class="formula">$$x_0 \xrightarrow{\text{VAE Encoder}} z_0 \xrightarrow{q(z_t|z_0)} z_t \xrightarrow{\text{UNet}_\theta(z_t,t,c)} \hat\epsilon \xrightarrow{\text{VAE Decoder}} \hat x_0$$</div>
+
+<h3>UNet 구성</h3>
+<table>
+  <thead><tr><th>블록</th><th>구성</th><th>LoRA 적용</th></tr></thead>
+  <tbody>
+    <tr><td>Down blocks</td><td>ResBlock + CrossAttention × 4단계</td><td>CrossAttention의 Q,K,V,O 프로젝션</td></tr>
+    <tr><td>Mid block</td><td>ResBlock + CrossAttention</td><td>동일</td></tr>
+    <tr><td>Up blocks</td><td>ResBlock + CrossAttention × 4단계</td><td>동일</td></tr>
+    <tr><td>Text Encoder</td><td>CLIP (SD1: ViT-L/14, SD2: OpenCLIP ViT-H/14)</td><td>선택적 적용</td></tr>
+  </tbody>
+</table>
+
+<h2>훈련 목적함수</h2>
+<div class="grid2">
+  <div class="box">
+    <h3>ε-prediction (기본)</h3>
+    <div class="formula">$$\mathcal{L}=\mathbb{E}_{z_0,\epsilon,t}\left[\|\epsilon_\theta(z_t,t,c)-\epsilon\|^2\right]$$</div>
+    <p class="small">SD 1.x 기본. 노이즈를 직접 예측.</p>
+  </div>
+  <div class="box">
+    <h3>v-prediction (SD 2.x 선택)</h3>
+    <div class="formula">$$v_t=\sqrt{\bar\alpha_t}\epsilon-\sqrt{1-\bar\alpha_t}z_0$$</div>
+    <div class="formula">$$\mathcal{L}=\mathbb{E}\left[\|v_\theta(z_t,t,c)-v_t\|^2\right]$$</div>
+    <p class="small"><code>--v_parameterization</code> 플래그로 활성화.</p>
+  </div>
+</div>
+
+<h2>훈련 모드 (sd-scripts)</h2>
+<table>
+  <thead><tr><th>모드</th><th>스크립트</th><th>학습 대상</th><th>권장 LR</th></tr></thead>
+  <tbody>
+    <tr><td><strong>DreamBooth</strong></td><td><code>train_db.py</code></td><td>UNet 전체 (+정규화 이미지)</td><td>1e-6</td></tr>
+    <tr><td><strong>Fine-Tune</strong></td><td><code>fine_tune.py</code></td><td>UNet 전체</td><td>2e-6</td></tr>
+    <tr><td><strong>LoRA</strong></td><td><code>train_network.py</code></td><td>LoRA A,B 행렬</td><td>1e-4</td></tr>
+    <tr><td><strong>Textual Inversion</strong></td><td><code>train_textual_inversion.py</code></td><td>토큰 임베딩</td><td>5e-3</td></tr>
+    <tr><td><strong>ControlNet</strong></td><td><code>train_controlnet.py</code></td><td>ControlNet 인코더</td><td>1e-5</td></tr>
+  </tbody>
+</table>
+
+<h2>핵심 하이퍼파라미터</h2>
+<table>
+  <thead><tr><th>파라미터</th><th>영향</th><th>권장</th></tr></thead>
+  <tbody>
+    <tr><td><code>resolution</code></td><td>학습 해상도</td><td>SD1: 512, SD2: 768</td></tr>
+    <tr><td><code>clip_skip</code></td><td>CLIP 레이어 깊이</td><td>SD1: 2 (anime), 1 (photo)</td></tr>
+    <tr><td><code>noise_offset</code></td><td>밝기 학습 개선</td><td>0.05~0.1</td></tr>
+    <tr><td><code>min_snr_gamma</code></td><td>손실 가중치 평활화</td><td>5</td></tr>
+  </tbody>
+</table>
+</article></div></body></html>

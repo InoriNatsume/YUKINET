@@ -1,0 +1,59 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>SDXL — Architecture</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / architecture / sdxl</p>
+<h1>SDXL — Stable Diffusion XL</h1>
+<div class="chips">
+  <span class="chip">백본: UNet (확장)</span>
+  <span class="chip">확산: DDPM (ε/v)</span>
+  <span class="chip">유형: Image</span>
+  <span class="chip tag sdscripts">sd-scripts ✓</span>
+  <span class="chip tag diffpipe">diffusion-pipe ✓</span>
+</div>
+
+<h2>아키텍처 특징</h2>
+<div class="formula">$$\text{SDXL}=\underbrace{\text{UNet}_{2.6B}}_{\text{확장된 attention}}+\underbrace{\text{CLIP-L}+\text{OpenCLIP-G}}_{\text{이중 텍스트 인코더}}+\underbrace{\text{VAE}}_{\text{f=8}}$$</div>
+
+<table>
+  <thead><tr><th>SD 1.x와 차이</th><th>SDXL</th></tr></thead>
+  <tbody>
+    <tr><td>파라미터 수</td><td>~860M → <strong>2.6B</strong></td></tr>
+    <tr><td>텍스트 인코더</td><td>CLIP 1개 → <strong>CLIP-L + OpenCLIP-G</strong> 듀얼</td></tr>
+    <tr><td>해상도</td><td>512 → <strong>1024</strong></td></tr>
+    <tr><td>조건</td><td>텍스트만 → <strong>텍스트 + crop_coords + original_size + target_size</strong></td></tr>
+    <tr><td>Attention 레이어</td><td>4단계 → <strong>3단계 (최하단 제거)</strong></td></tr>
+  </tbody>
+</table>
+
+<h2>훈련 특수 하이퍼파라미터</h2>
+<table>
+  <thead><tr><th>파라미터</th><th>수식/효과</th><th>sd-scripts</th><th>diffusion-pipe</th></tr></thead>
+  <tbody>
+    <tr><td><strong>crop conditioning</strong></td><td>$c_\text{crop}=(c_\text{top},c_\text{left})$ — 크롭 좌표 조건</td><td>자동</td><td>자동</td></tr>
+    <tr><td><strong>original_size</strong></td><td>$c_\text{size}=(H_\text{orig},W_\text{orig})$ — 원본 크기 조건</td><td>자동</td><td>자동</td></tr>
+    <tr><td><strong>min_snr_gamma</strong></td><td>$w(t)=\min(\text{SNR},\gamma)/\text{SNR}$</td><td><code>--min_snr_gamma 5</code></td><td><code>min_snr_gamma = 5</code></td></tr>
+    <tr><td><strong>adaptive_noise_scale</strong></td><td>이미지 평균 밝기 기반 노이즈 오프셋</td><td><code>--adaptive_noise_scale</code></td><td>미지원</td></tr>
+    <tr><td><strong>fused_backward_pass</strong></td><td>backward+optim 결합 (Adafactor 전용)</td><td><code>--fused_backward_pass</code></td><td>미지원</td></tr>
+  </tbody>
+</table>
+
+<h2>diffusion-pipe에서의 SDXL</h2>
+<div class="box">
+<p>diffusion-pipe는 SDXL에서 <strong>v-prediction</strong>과 <strong>debiased estimation loss</strong>를 추가로 지원합니다. 또한 <code>min_snr_gamma</code>가 v-pred에서도 올바르게 동작하도록 구현되어 있습니다.</p>
+</div>
+
+<h2>코드 매핑</h2>
+<div class="codebox"># sd-scripts
+python sdxl_train.py --pretrained_model_name_or_path model.safetensors \
+    --resolution 1024 --train_batch_size 1 \
+    --learning_rate 2e-6 --optimizer_type AdamW
+
+python sdxl_train_network.py --network_module networks.lora \
+    --network_dim 16 --network_alpha 8 \
+    --learning_rate 1e-4
+
+# diffusion-pipe (config.toml)
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+v_pred = false
+min_snr_gamma = 5</div>
+</article></div></body></html>

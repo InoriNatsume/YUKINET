@@ -1,0 +1,150 @@
+<!doctype html><html lang='ko'><head><meta charset='UTF-8'/><meta name='viewport' content='width=device-width, initial-scale=1.0'/><title>Wan 2.1 / 2.2 — Architecture</title><link rel='stylesheet' href='../assets/style.css'/><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};</script><script async src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js'></script></head><body><div class='wrap'><article class='paper'>
+<p class="small"><a href="../index.html">← Training Master Docs</a> / architecture / wan</p>
+<h1>Wan 2.1 / 2.2 — 비디오 확산 DiT</h1>
+<div class="chips">
+  <span class="chip">백본: 3D-DiT (Video)</span>
+  <span class="chip">확산: Flow Matching</span>
+  <span class="chip">유형: Video (T2V / I2V)</span>
+  <span class="chip tag sdscripts">sd-scripts ✗</span>
+  <span class="chip tag diffpipe">diffusion-pipe ✓</span>
+  <span class="chip tag diffsynth">DiffSynth-Studio ✓</span>
+</div>
+
+<h2>아키텍처 개요</h2>
+<div class="formula">$$\text{Video }(B,C,F,H,W)\xrightarrow{\text{3D-VAE}}\text{Latent }(B,C_z,F',H',W')\xrightarrow{\text{3D-DiT}_\theta}v_\theta$$</div>
+
+<h3>3D-DiT 블록 구조</h3>
+<p>Wan 모델은 시공간(Spatio-Temporal) 어텐션을 위한 3D Transformer 아키텍처를 사용합니다.</p>
+<table>
+  <thead><tr><th>구성 요소</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td><strong>3D VAE</strong></td><td>시간축 4× + 공간축 8× 압축. 비디오 프레임을 연속 잠재 공간으로 인코딩</td></tr>
+    <tr><td><strong>Spatial Attention</strong></td><td>프레임 내부의 H×W 공간 관계 처리</td></tr>
+    <tr><td><strong>Temporal Attention</strong></td><td>프레임 간 시간적 일관성 유지</td></tr>
+    <tr><td><strong>Cross Attention</strong></td><td>텍스트 조건 임베딩 주입</td></tr>
+    <tr><td><strong>Text Encoder</strong></td><td>T5-XXL (또는 UMT5-XXL)</td></tr>
+    <tr><td><strong>Image Encoder (I2V)</strong></td><td>CLIP-ViT (Image-to-Video 조건용)</td></tr>
+  </tbody>
+</table>
+
+<h2>Flow Matching 훈련</h2>
+<div class="formula">$$\mathcal{L}=\mathbb{E}_{z_0,\epsilon,t}\left[\|v_\theta(x_t,t,c)-(\epsilon-z_0)\|^2\right]$$</div>
+<div class="formula">$$x_t=(1-t)z_0+t\epsilon$$</div>
+
+<h3>Timestep 분포</h3>
+<p>DiffSynth-Studio는 <strong>bell-shaped</strong> 분포를 사용하여 중간 타임스텝에 더 많은 가중치를 부여합니다:</p>
+<div class="formula">$$p(t)\propto\frac{1}{t(1-t)}\cdot\exp\!\left(-\frac{(\text{logit}(t)-\mu)^2}{2s^2}\right)$$</div>
+
+<h2>지원 변형 모델</h2>
+<table>
+  <thead><tr><th>모델</th><th>크기</th><th>유형</th><th>diffusion-pipe</th><th>DiffSynth</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Wan 2.1 T2V</strong></td><td>14B</td><td>Text-to-Video</td><td>✓</td><td>✓</td></tr>
+    <tr><td><strong>Wan 2.1 I2V</strong></td><td>14B</td><td>Image-to-Video</td><td>✓</td><td>✓</td></tr>
+    <tr><td><strong>Wan 2.1 1.3B</strong></td><td>1.3B</td><td>T2V (small)</td><td>✓</td><td>—</td></tr>
+    <tr><td><strong>Wan 2.1 FLF2V</strong></td><td>14B</td><td>First-Last-Frame-to-Video</td><td>✓</td><td>—</td></tr>
+    <tr><td><strong>Wan 2.2</strong></td><td>14B</td><td>차세대 버전</td><td>✓</td><td>✓</td></tr>
+  </tbody>
+</table>
+
+<h2>비디오 훈련 특수 하이퍼파라미터</h2>
+<table>
+  <thead><tr><th>파라미터</th><th>설명</th><th>코드베이스</th></tr></thead>
+  <tbody>
+    <tr><td><code>num_frames</code></td><td>훈련 프레임 수 (보통 16~81)</td><td>Both</td></tr>
+    <tr><td><code>frame_step</code></td><td>원본 비디오에서 프레임 추출 간격</td><td>diffusion-pipe</td></tr>
+    <tr><td><code>frame_buckets</code></td><td>프레임 수별 버킷팅 (예: [1,33,65])</td><td>diffusion-pipe</td></tr>
+    <tr><td><code>resolutions</code></td><td>해상도 버킷 (멀티 해상도 훈련)</td><td>diffusion-pipe</td></tr>
+    <tr><td><code>block_swap_quantile</code></td><td>VRAM 절약을 위한 블록 스와핑 비율</td><td>diffusion-pipe</td></tr>
+    <tr><td><code>gradient_checkpointing</code></td><td>필수 (비디오 메모리 요구량)</td><td>Both</td></tr>
+  </tbody>
+</table>
+
+<h2>코드 매핑</h2>
+<div class="grid2">
+  <div class="box">
+    <h3 style="color:#007bff">diffusion-pipe</h3>
+    <div class="codebox"># configs: examples/wan/
+# TOML 설정 예시:
+[model]
+type = "wan"         # 또는 "wan_i2v", "wan_flf2v"
+transformer_path = "..."
+vae_path = "..."
+text_encoder_path = "..."
+
+[dataset]
+frame_buckets = [1, 33, 65]
+resolutions = [[480, 832], [832, 480]]
+
+[optimizer]
+type = "adamw_optimi"
+lr = 2e-5
+
+# 메모리 최적화
+block_swap_quantile = 0.25   # GPU VRAM 24GB 대응
+pipeline_stages = 1          # multi-GPU 파이프라인</div>
+  </div>
+  <div class="box">
+    <h3 style="color:#ffc107">DiffSynth-Studio</h3>
+    <div class="codebox"># examples/wanvideo/
+# 2단계 학습:
+# 1) data_process: 라벨링 + 전처리
+# 2) train: LoRA 학습
+
+# 핵심 설정
+dataset:
+  video_folder: "data/videos"
+  text_folder: "data/labels"
+  num_frames: 81
+
+training:
+  learning_rate: 1e-4
+  lora_rank: 16
+  use_gradient_checkpointing: true
+  training_steps: 10000
+
+# 지원 Loss:
+# - FlowMatchSFTLoss (기본 SFT)
+# - DirectDistillLoss (증류)
+# - TrajectoryImitationLoss (궤적 모방)</div>
+  </div>
+</div>
+
+<h2>비디오 훈련 VRAM 추정</h2>
+<table>
+  <thead><tr><th>설정</th><th>LoRA r=16</th><th>Full FT</th></tr></thead>
+  <tbody>
+    <tr><td>1 frame (이미지 모드)</td><td>~12 GB</td><td>~48 GB</td></tr>
+    <tr><td>33 frames (480p)</td><td>~24 GB</td><td>~80 GB+</td></tr>
+    <tr><td>65 frames (480p)</td><td>~40 GB</td><td>Multi-GPU 필수</td></tr>
+    <tr><td>+ Block Swap (0.25)</td><td>—30~40%</td><td>—30~40%</td></tr>
+  </tbody>
+</table>
+<p class="small">1 frame으로 훈련하면 이미지 LoRA처럼 작동합니다 (비디오 모델의 정지 이미지 학습).</p>
+
+<h2>DiffSynth 특수 Loss 함수</h2>
+<h3>FlowMatchSFTLoss (기본)</h3>
+<div class="formula">$$\mathcal{L}_\text{SFT}=\|v_\theta-(\epsilon-z_0)\|^2$$</div>
+
+<h3>DirectDistillLoss (증류)</h3>
+<div class="formula">$$\mathcal{L}_\text{distill}=\|v_\theta^{\text{student}}-v_{\theta'}^{\text{teacher}}\|^2$$</div>
+<p class="small">Teacher 모델의 출력을 직접 모방하여 빠른 수렴 달성</p>
+
+<h3>TrajectoryImitationLoss (궤적 모방)</h3>
+<div class="formula">$$\mathcal{L}_\text{traj}=\sum_{i}\|x_{t_i}^{\text{student}}-x_{t_i}^{\text{teacher}}\|^2$$</div>
+<p class="small">ODE 궤적 전체를 모방하여 더 안정적인 증류</p>
+
+<h2>권장 설정</h2>
+<table>
+  <thead><tr><th>설정</th><th>LoRA (추천)</th></tr></thead>
+  <tbody>
+    <tr><td>Learning Rate</td><td>1e-4 ~ 2e-4</td></tr>
+    <tr><td>LoRA Rank</td><td>16~32</td></tr>
+    <tr><td>Frames</td><td>33 (시작), 점진 증가</td></tr>
+    <tr><td>Optimizer</td><td>AdamW / AdamW-optimi</td></tr>
+    <tr><td>Mixed Precision</td><td>BF16</td></tr>
+    <tr><td>Gradient Checkpointing</td><td>필수</td></tr>
+    <tr><td>Block Swap</td><td>VRAM < 40GB 시 0.25</td></tr>
+  </tbody>
+</table>
+</article></div></body></html>

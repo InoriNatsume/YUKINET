@@ -1,0 +1,212 @@
+site_name: "Untitled"
+site_description: ""
+site_url: ""  # GitHub Pages URL로 변경 예정
+
+theme:
+  name: material
+  language: ko
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: pink
+      toggle:
+        icon: material/brightness-4
+        name: 라이트 모드로 전환
+    - scheme: default
+      primary: deep purple
+      accent: pink
+      toggle:
+        icon: material/brightness-7
+        name: 다크 모드로 전환
+  font:
+    text: Noto Sans KR
+    code: JetBrains Mono
+  features:
+    - navigation.tabs           # 상단 탭 (이론/모델/도구/실험)
+    - navigation.tabs.sticky    # 스크롤해도 탭 고정
+    - navigation.top            # 맨 위로 가기 버튼
+    - navigation.indexes        # 섹션 index 페이지 허용
+    - search.highlight          # 검색 결과 하이라이트
+    - search.suggest            # 검색 자동완성
+    - content.code.copy         # 코드 복사 버튼
+    - content.tabs.link         # 탭 동기화
+    - toc.follow                # TOC 스크롤 추적
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  # 수학 (LaTeX)
+  - pymdownx.arithmatex:
+      generic: true
+  # 코드 하이라이팅
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  # 탭
+  - pymdownx.tabbed:
+      alternate_style: true
+  # 경고/노트 박스 (Admonitions)
+  - admonition
+  - pymdownx.details
+  # 기타
+  - pymdownx.mark            # ==하이라이트==
+  - pymdownx.critic           # 추가/삭제 표시
+  - pymdownx.keys             # 키보드 키 표시
+  - pymdownx.smartsymbols     # (c) → © 등
+  - attr_list                 # HTML 속성
+  - md_in_html                # HTML 안에 마크다운
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - def_list                  # 정의 목록
+
+extra_javascript:
+  # MathJax 설정 (기존 콘텐츠와 동일)
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search:
+      lang: 
+        - ko
+        - en
+  - macros:
+      include_yaml:
+        - site_settings: config/site_settings.yml
+  - minify:
+      minify_html: true
+  - glightbox           # 이미지 라이트박스
+
+# 문서 공용 변수는 config/site_settings.yml + main.py에서 주입
+extra: {}
+
+# 네비게이션 구조
+nav:
+  - Home: index.md
+
+  - 📐 이론:
+    - theory/index.md
+    - 확산 수학:
+      - theory/diffusion/index.md
+      - 정방향 확산: theory/diffusion/forward.md
+      - Flow Matching: theory/diffusion/flow-matching.md
+    - 샘플러:
+      - theory/samplers/index.md
+      - 샘플러 카탈로그:
+        - theory/samplers/sampler/index.md
+        - DDIM: theory/samplers/sampler/ddim.md
+        - DDPM: theory/samplers/sampler/ddpm.md
+        - DEIS: theory/samplers/sampler/deis.md
+        - DPM-2: theory/samplers/sampler/dpm_2.md
+        - DPM-2 Ancestral: theory/samplers/sampler/dpm_2_ancestral.md
+        - DPM Adaptive: theory/samplers/sampler/dpm_adaptive.md
+        - DPM Fast: theory/samplers/sampler/dpm_fast.md
+        - DPM++ 2M: theory/samplers/sampler/dpmpp_2m.md
+        - DPM++ 2M CFG++: theory/samplers/sampler/dpmpp_2m_cfg_pp.md
+        - DPM++ 2M SDE: theory/samplers/sampler/dpmpp_2m_sde.md
+        - DPM++ 2M SDE GPU: theory/samplers/sampler/dpmpp_2m_sde_gpu.md
+        - DPM++ 2M SDE Heun: theory/samplers/sampler/dpmpp_2m_sde_heun.md
+        - DPM++ 2M SDE Heun GPU: theory/samplers/sampler/dpmpp_2m_sde_heun_gpu.md
+        - DPM++ 2S Ancestral: theory/samplers/sampler/dpmpp_2s_ancestral.md
+        - DPM++ 2S Ancestral CFG++: theory/samplers/sampler/dpmpp_2s_ancestral_cfg_pp.md
+        - DPM++ 3M SDE: theory/samplers/sampler/dpmpp_3m_sde.md
+        - DPM++ 3M SDE GPU: theory/samplers/sampler/dpmpp_3m_sde_gpu.md
+        - DPM++ SDE: theory/samplers/sampler/dpmpp_sde.md
+        - DPM++ SDE GPU: theory/samplers/sampler/dpmpp_sde_gpu.md
+        - ER SDE: theory/samplers/sampler/er_sde.md
+        - Euler: theory/samplers/sampler/euler.md
+        - Euler Ancestral: theory/samplers/sampler/euler_ancestral.md
+        - Euler Ancestral CFG++: theory/samplers/sampler/euler_ancestral_cfg_pp.md
+        - Euler CFG++: theory/samplers/sampler/euler_cfg_pp.md
+        - Exp Heun 2 x0: theory/samplers/sampler/exp_heun_2_x0.md
+        - Exp Heun 2 x0 SDE: theory/samplers/sampler/exp_heun_2_x0_sde.md
+        - Gradient Estimation: theory/samplers/sampler/gradient_estimation.md
+        - Gradient Estimation CFG++: theory/samplers/sampler/gradient_estimation_cfg_pp.md
+        - Heun: theory/samplers/sampler/heun.md
+        - Heun++2: theory/samplers/sampler/heunpp2.md
+        - IPNDM: theory/samplers/sampler/ipndm.md
+        - IPNDM V: theory/samplers/sampler/ipndm_v.md
+        - LCM: theory/samplers/sampler/lcm.md
+        - LMS: theory/samplers/sampler/lms.md
+        - RES Multistep: theory/samplers/sampler/res_multistep.md
+        - RES Multistep Ancestral: theory/samplers/sampler/res_multistep_ancestral.md
+        - RES Multistep Ancestral CFG++: theory/samplers/sampler/res_multistep_ancestral_cfg_pp.md
+        - RES Multistep CFG++: theory/samplers/sampler/res_multistep_cfg_pp.md
+        - SA Solver: theory/samplers/sampler/sa_solver.md
+        - SA Solver PECE: theory/samplers/sampler/sa_solver_pece.md
+        - SEEDS 2: theory/samplers/sampler/seeds_2.md
+        - SEEDS 3: theory/samplers/sampler/seeds_3.md
+        - Uni PC: theory/samplers/sampler/uni_pc.md
+        - Uni PC BH2: theory/samplers/sampler/uni_pc_bh2.md
+      - 스케줄러 카탈로그:
+        - theory/samplers/scheduler/index.md
+        - Beta: theory/samplers/scheduler/beta.md
+        - DDIM Uniform: theory/samplers/scheduler/ddim_uniform.md
+        - Exponential: theory/samplers/scheduler/exponential.md
+        - Karras: theory/samplers/scheduler/karras.md
+        - KL Optimal: theory/samplers/scheduler/kl_optimal.md
+        - Linear Quadratic: theory/samplers/scheduler/linear_quadratic.md
+        - Normal: theory/samplers/scheduler/normal.md
+        - SGM Uniform: theory/samplers/scheduler/sgm_uniform.md
+        - Simple: theory/samplers/scheduler/simple.md
+    - 옵티마이저:
+      - theory/optimizers/index.md
+      - AdamW: theory/optimizers/adamw.md
+      - AdamW 8bit: theory/optimizers/adamw8bit.md
+      - AdamW 8bit Kahan: theory/optimizers/adamw8bitkahan.md
+      - AdamW (optimi): theory/optimizers/adamw_optimi.md
+      - StableAdamW: theory/optimizers/stableadamw.md
+      - Prodigy: theory/optimizers/prodigy.md
+      - Muon: theory/optimizers/muon.md
+    - 훈련 이론:
+      - theory/training/index.md
+      - 목적함수: theory/training/objectives.md
+      - LoRA 수학: theory/training/lora.md
+    - 아키텍처:
+      - theory/architecture/index.md
+    - 기호 사전: theory/notation.md
+
+  - 🧩 모델:
+    - models/index.md
+    - Flux:
+      - 개요: models/flux.md
+      - 아키텍처 상세: models/flux_arch.md
+    - SD 1.x: models/sd1x_arch.md
+    - SDXL: models/sdxl_arch.md
+    - SD3: models/sd3_arch.md
+    - Wan: models/wan_arch.md
+    - Anima: models/anima.md
+    - Z-Image: models/z_image.md
+
+  - 🔧 도구:
+    - tools/index.md
+    - ComfyUI:
+      - tools/comfyui/index.md
+      - 샘플러 구현: tools/comfyui/samplers.md
+    - kohya (sd-scripts):
+      - tools/kohya/index.md
+    - diffusion-pipe:
+      - tools/diffusion-pipe/index.md
+    - HuggingFace:
+      - tools/huggingface/index.md
+    - DiffSynth-Studio:
+      - tools/diffsynth/index.md
+
+  - 🧪 실험:
+    - lab/index.md
+    - 레시피: lab/recipes.md
+
+  - 📚 참조:
+    - references.md

@@ -1,0 +1,13 @@
+﻿<!doctype html>
+<html lang="ko"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Scheduler: karras</title>
+<link rel="stylesheet" href="../assets/style.css"/>
+<script>
+window.MathJax={
+  tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},
+  options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head><body><div class="wrap"><article class="paper"><div class="topnav"><a class="btn" href="../index.html#top">최상위 문서</a><a class="btn" href="../index.html#integrated-model">통합 관점</a><a class="btn" href="../index.html#bridge">KSampler 브리지</a><a class="btn" href="../symbol/index.html">기호 위키</a><a class="btn" href="../index.html#scheduler-catalog">Scheduler Catalog</a></div><h1>Scheduler: <code>karras</code></h1><p class='muted'>Scheduler는 solver 식 자체보다 sigma grid(시간 재매개화)를 바꾸어 오차 분포와 경로 성향을 조정한다.</p><div class='formula'>$$ \sigma_i=(\sigma_{\max}^{1/\rho}+r_i(\sigma_{\min}^{1/\rho}-\sigma_{\max}^{1/\rho}))^\rho $$</div><p>rho로 밀도 제어</p><h2>기호 계약(정의역/공역/조건)</h2><table><thead><tr><th>항목</th><th>수식</th><th>설명</th></tr></thead><tbody><tr><td>스케줄 맵</td><td>$$S:\{0,\dots,N\}\to\Sigma\subset(0,\infty)$$</td><td>step index를 sigma로 매핑.</td></tr><tr><td>mesh 변수</td><td>$$h_k=|\lambda_{k+1}-\lambda_k|,\ \lambda=\log\alpha-\log\sigma$$</td><td>오차식에 직접 들어가는 유효 step.</td></tr><tr><td>오차 스케일</td><td>$$\|e_{global}\|\approx C\max_k h_k^p$$</td><td>동일 solver에서 scheduler 품질 차이의 핵심.</td></tr><tr><td>형상 파라미터</td><td>$$\rho>0$$</td><td>mesh 밀도 곡률을 제어.</td></tr></tbody></table><h2>메쉬(시간 재매개화) 수학</h2><div class='formula'>$$ \sigma(u)=\left(\sigma_{\max}^{1/\rho}+u(\sigma_{\min}^{1/\rho}-\sigma_{\max}^{1/\rho})\right)^\rho,\ u\in[0,1] $$</div><div class='formula'>$$h_k:=|\lambda_{k+1}-\lambda_k|,\quad \lambda=\log\alpha-\log\sigma,\quad \|e_{\mathrm{global}}\|\approx C\max_k h_k^p$$</div><p>rho로 고/저 sigma 구간의 mesh 밀도를 조정한다.</p><p class='small'>rho가 커질수록 저노이즈 구간 분해능이 증가해 세부 복원에 유리할 수 있다.</p><h2>Sampler와의 결합 해석</h2><p>같은 sampler라도 scheduler가 바뀌면 고 sigma 구간과 저 sigma 구간의 스텝 밀도가 달라지고, 결과적으로 세부 질감/구조 보존/수렴 속도 균형이 달라진다.</p><div class='formula'>$$x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k,\quad A_k,B_k,C_k,D_k \text{는 스케줄 메쉬에 의해 간접적으로 변한다}$$</div></article></div></body></html>

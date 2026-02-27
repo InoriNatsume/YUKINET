@@ -1,0 +1,25 @@
+# Deployment-excluded local folders
+Exp/
+Reference/
+
+# MkDocs local artifacts
+homepage/venv/
+homepage/site/
+homepage/.cache/
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
