@@ -12,6 +12,10 @@ AI 이미지·영상 생성 기술(Diffusion 계열)의 **수학**과 **코드**
 
 사이트는 [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) 기반이고, GitHub Pages로 배포합니다.
 
+내용의 상당수는 GPT5.2 thinking 및 GPT-5.3-codex를 통해 선작성했고, 점차적으로 확인 및 수정합니다.
+
+YUKINET의 YUKI는 Key와 WFS의 합작 게임인 Heaven Burns Red의 등장인물 和泉ユキ(이즈미 유키)에서 따왔습니다.
+
 ---
 
 ## 4계층 콘텐츠 구조
