@@ -25,13 +25,13 @@
 
 Flux는 이미지 해상도에 따라 timestep 분포를 조절합니다:
 
-$$
+\[
 \mu = 0.5 + \frac{H \times W}{256^2} \cdot 1.15
-$$
+\]
 
-$$
+\[
 t = \sigma(\mu + s \cdot z), \quad z \sim \mathcal{N}(0,1)
-$$
+\]
 
 큰 이미지 → 더 많은 노이즈가 필요 (content 밀도 증가) → $\mu$를 키워 높은 $t$ 쪽을 더 샘플.
 
@@ -39,9 +39,9 @@ $$
 
 추론 시 sigma를 비선형 변환:
 
-$$
+\[
 \sigma' = \frac{s \cdot \sigma}{1 + (s-1)\sigma}
-$$
+\]
 
 - `dev` 모델: $s = 3.0$
 - `schnell` 모델: $s = 1.0$
@@ -61,3 +61,4 @@ $$
 | kohya (sd-scripts) | ✅ `flux_train.py` | [→ 도구/kohya](../tools/kohya/index.md) |
 | DiffSynth | ✅ | [→ 도구/DiffSynth](../tools/diffsynth/index.md) |
 | HuggingFace diffusers | ✅ `FluxPipeline` | [→ 도구/HuggingFace](../tools/huggingface/index.md) |
+

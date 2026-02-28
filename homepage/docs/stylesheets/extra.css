@@ -312,6 +312,76 @@ mjx-container[display="true"]::after {
 }
 
 /* ================================================================
+   MERMAID — Cyan-on-dark render alignment
+   ================================================================ */
+
+.mermaid {
+  background: linear-gradient(160deg,
+      rgba(0, 212, 255, 0.04) 0%,
+      rgba(0, 84, 126, 0.08) 100%);
+  border: 1px solid rgba(0, 212, 255, 0.12);
+  border-radius: 6px;
+  padding: 0.9rem;
+  margin: 1.1rem 0;
+  overflow-x: auto;
+}
+
+.mermaid svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon,
+.mermaid .node path,
+.mermaid .actor,
+.mermaid .actor-line {
+  fill: #0a1422 !important;
+  stroke: #00b7e0 !important;
+}
+
+.mermaid .nodeLabel,
+.mermaid .label text,
+.mermaid .actor text,
+.mermaid .messageText,
+.mermaid .labelText,
+.mermaid .loopText,
+.mermaid .noteText {
+  fill: #d9f6ff !important;
+  color: #d9f6ff !important;
+}
+
+.mermaid .edgePath .path,
+.mermaid .flowchart-link,
+.mermaid .messageLine0,
+.mermaid .messageLine1,
+.mermaid .loopLine {
+  stroke: #5fdfff !important;
+}
+
+.mermaid .marker path {
+  fill: #5fdfff !important;
+  stroke: #5fdfff !important;
+}
+
+.mermaid .cluster rect,
+.mermaid .labelBox {
+  fill: rgba(0, 212, 255, 0.06) !important;
+  stroke: #00b7e0 !important;
+}
+
+.mermaid .note rect {
+  fill: #102033 !important;
+  stroke: #00b7e0 !important;
+}
+
+.mermaid-error {
+  border-color: rgba(255, 92, 138, 0.5);
+}
+
+/* ================================================================
    CODE BLOCKS — Terminal / console aesthetic
    ================================================================ */
 

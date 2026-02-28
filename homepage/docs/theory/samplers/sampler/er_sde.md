@@ -1,13 +1,16 @@
-﻿
+
 
 # Sampler: er_sde
-family: ER-SDEstochastic: yescfg_pp: nogpu_variant: nostandalone: no
 **ComfyUI 함수 시그니처**
 `sample_er_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, s_noise=1.0, noise_sampler=None, noise_scaler=None, max_stage=3)`
 
 **docstring:** Extended Reverse-Time SDE solver (VP ER-SDE-Solver-3). arXiv: https://arxiv.org/abs/2309.06169.
 Code reference: https://github.com/QinpengCui/ER-SDE-Solver/blob/main/er_sde_solver.py.
-$$ x_{k+1}=\Phi_{\mathrm{special\ SDE}}(\text{stage/order})+\Phi_{\mathrm{noise}} $$
+
+\[
+x_{k+1}=\Phi_{\mathrm{special\ SDE}}(\text{stage/order})+\Phi_{\mathrm{noise}}
+\]
+
 SDE 특화 계열. drift 항보다 stochastic design(eta/s_noise/tau_func/noise_scaler)이 출력 분산과 질감에 큰 영향을 준다.
 
 FPE 관점에서 drift + diffusion가 모두 활성화된다: $\partial_t\rho=-\nabla\cdot(\rho b)+\frac12 g^2\Delta\rho$. OT 관점에서는 entropic regularization이 있는 bridge 해석이 자연스럽다.
@@ -20,10 +23,22 @@ FPE 관점에서 drift + diffusion가 모두 활성화된다: $\partial_t\rho=-\
 |---|---|
 | method class | stochastic PC/SDE 특화 |
 | local truncation | $O(h^{p+1})\ \text{(drift)} + O(h^{q+1/2})\ \text{(diffusion)}$ |
-| global error | $weak error 중심으로 해석하는 것이 실용적$ |
+| global error | weak error 중심으로 해석하는 것이 실용적 |
 | strong/weak 관점 | noise 설계(eta, s_noise, tau_func, noise_scaler)가 지배적 |
 | stability 메모 | 확산항 스케일이 과하면 질감은 증가하지만 구조 안정성은 저하 |
-$$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t$$$$\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t
+\]
+
+\[
+\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -34,7 +49,19 @@ $$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \p
 | 스텝 제어 | 고정 mesh 위에서 noise injection 파라미터(eta, s_noise 등)로 분산 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | 기본 latent + 중간 stage 텐서 저장 비용이 주된 메모리 사용처. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u)$$$$x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u)
+\]
+
+\[
+x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top
+\]
+
 **family:** ER-SDE / **stochastic:** yes
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -42,7 +69,11 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `er_sde` / **family:** ER-SDE
 
 ### 순수수학 유도 스케치
-$$x_{k+1}=x_k+\sum_{j=1}^{M}a_j b_\theta(x_{k,j},t_{k,j})\Delta t_j+\sum_{j=1}^{M}c_j g(t_{k,j})\sqrt{\Delta t_j}\,\xi_{k,j}$$
+
+\[
+x_{k+1}=x_k+\sum_{j=1}^{M}a_j b_\theta(x_{k,j},t_{k,j})\Delta t_j+\sum_{j=1}^{M}c_j g(t_{k,j})\sqrt{\Delta t_j}\,\xi_{k,j}
+\]
+
 주요 오차원천: stage 결합 계수 근사, diffusion 계수 스케일링, 다중 노이즈 샘플 분산.
 
 ### 수치해석 구현 절차
@@ -91,7 +122,7 @@ $$x_{k+1}=x_k+\sum_{j=1}^{M}a_j b_\theta(x_{k,j},t_{k,j})\Delta t_j+\sum_{j=1}^{
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 | 노이즈 배율 | $s_{noise}\ge0$ | 분산 스케일 파라미터. |
 
 ## 공통 인자(시그니처 공통부)
@@ -147,3 +178,5 @@ def sample_er_sde(model, x, sigmas, extra_args=None, callback=None, disable=None
     num_integration_points = 200.0
     point_indice = torch.arange(0, num_integration_points, dtype=torch.float32, device=x.device)
 ```
+
+

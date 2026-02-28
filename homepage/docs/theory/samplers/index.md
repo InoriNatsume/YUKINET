@@ -6,31 +6,31 @@
 
 ### 이산 시간 업데이트
 
-$$
+\[
 x_{k+1} = \Phi_{\mathrm{drift}}(x_k, \sigma_k, \sigma_{k+1}) + \Phi_{\mathrm{corr}}(\text{history}) + \Phi_{\mathrm{noise}}(\eta, s_{\text{noise}}, \xi_k)
-$$
+\]
 
 여기서 방향 벡터(denoised-to-direction)는:
 
-$$
+\[
 d(x, \sigma) = \frac{x - \hat{x}_0}{\sigma} \quad \text{(ComfyUI: } \texttt{to\_d}\text{)}
-$$
+\]
 
 ### 연속 시간 동역학
 
 === "역시간 SDE"
 
-    $$
+    \[
     dx = \left( f_\theta(x,t) - \frac{1}{2}g(t)^2 \nabla_x \log p_t(x) \right) dt + g(t) \, d\bar{W}_t
-    $$
+    \]
     
     확산항 포함 — ancestral/SDE 샘플러가 이것의 수치 근사.
 
 === "확률흐름 ODE"
 
-    $$
+    \[
     dx = \left( f_\theta(x,t) - \frac{1}{2}g(t)^2 \nabla_x \log p_t(x) \right) dt
-    $$
+    \]
     
     확산항 제거 — Euler, DPM++, UniPC 등 결정론 샘플러가 이것의 수치 근사.
 
@@ -78,7 +78,17 @@ for k in range(N):
 | 샘플러 | Family | Stochastic | 수렴 차수 | 상세 |
 |---|---|---|---|---|
 | [Euler](sampler/euler.md) | Euler | No | 1차 | 가장 기본적인 ODE 솔버 |
-| *추가 예정* | — | — | — | — |
+| [Euler Ancestral](sampler/euler_ancestral.md) | Euler | Yes | 1차 | ancestral 노이즈 재주입 |
+| [Heun](sampler/heun.md) | Heun | No | 2차 | predictor-corrector 계열 |
+| [DPM_2](sampler/dpm_2.md) | DPM | No | 2차 | DPM 계열 기본형 |
+| [DPM++ 2M](sampler/dpmpp_2m.md) | DPM++ | No | multistep | 실무에서 자주 쓰는 균형형 |
+| [DPM++ 2M SDE](sampler/dpmpp_2m_sde.md) | DPM++ | Yes | multistep | 품질/다양성 절충 |
+| [LMS](sampler/lms.md) | LMS | No | multistep | 선형 다단계 적분 |
+| [DDIM](sampler/ddim.md) | DDIM(alias) | No | 1차 근사 | ComfyUI 내부 alias 경로 |
+| [DEIS](sampler/deis.md) | DEIS | No | multistep | 고차 지수 적분 계열 |
+| [UniPC](sampler/uni_pc.md) | UniPC | No | predictor-corrector | 낮은 step 효율형 |
+| [SA-Solver](sampler/sa_solver.md) | SA | Yes | multistep | 확률적 Adams 계열 |
+| [SEEDS 2](sampler/seeds_2.md) | SEEDS | Yes | multistage | 확률형 exp-integrator |
 
 !!! tip "읽기 순서"
     1. 먼저 이 개요에서 **family와 분류**를 파악

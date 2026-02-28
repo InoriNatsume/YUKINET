@@ -27,4 +27,4 @@
 
 ## 코드 위치
 
-프로젝트 루트: `C:\Projects\kohya_anima\Reference\diffusion-pipe\`
+프로젝트 루트(예시): `Reference/diffusion-pipe/`

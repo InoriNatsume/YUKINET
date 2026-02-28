@@ -4,9 +4,9 @@
 
 원본 가중치 $W \in \mathbb{R}^{d_\text{out} \times d_\text{in}}$를 직접 수정하지 않고, **저랭크 행렬 쌍**으로 변화량을 근사:
 
-$$
+\[
 W' = W + \Delta W = W + \frac{\alpha}{r} B A
-$$
+\]
 
 - $A \in \mathbb{R}^{r \times d_\text{in}}$ — down-projection (가우시안 초기화)
 - $B \in \mathbb{R}^{d_\text{out} \times r}$ — up-projection (**0 초기화**)

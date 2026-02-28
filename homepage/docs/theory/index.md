@@ -1,35 +1,26 @@
 # 📐 이론 (Theory)
 
-모델과 도구에 무관한 **보편적 수학/알고리즘**을 다룹니다.
+## 경계 규칙 (왜 이렇게 나누는가)
 
-여기서 정의한 수식과 개념은 모델·도구 페이지에서 반복하지 않고 **링크로 참조**합니다.
+```mermaid
+flowchart LR
+  A["확산 수학: 공통 상태공간/동역학"] --> B["훈련·최적화 수학: loss + optimizer"]
+  A --> C["샘플러 수학: 역적분/추론"]
+  D["아키텍처 수학: 모델 사상 F_theta"] --> B
+  D --> C
+```
 
-## 확산 수학
+- **확산 수학**: 훈련/추론 공통으로 쓰는 기반 동역학(정방향/역방향, SDE/ODE, FM)
+- **훈련·최적화 수학**: 목적함수 + optimizer + regularization
+- **샘플러 수학**: 추론 시 역적분기(ODE/SDE stepper + scheduler)
+- **아키텍처 수학**: UNet/DiT/MMDiT, VAE, attention, text encoder
 
-정방향 확산, 역방향 SDE/ODE, Score Function, Flow Matching, FPE, 최적수송
+즉, `확산 수학`은 훈련/추론 둘 다 포함하는 상위 계층이고,
+`훈련·최적화`와 `샘플러`는 적용 단계별 하위 계층입니다.
 
-→ [상세 보기](diffusion/index.md)
+## 섹션 바로가기
 
-## 샘플러
-
-Euler, DPM++, UniPC, SA-Solver 등. 통합 상태천이 모델 관점의 분류와 수렴 분석.
-
-→ [상세 보기](samplers/index.md)
-
-## 옵티마이저
-
-AdamW, Prodigy, Muon, Lion, Adafactor 등. 수렴률, 메모리, 적합 시나리오 비교.
-
-→ [상세 보기](optimizers/index.md)
-
-## 훈련 이론
-
-목적함수(ε/v/velocity), SNR 가중치, LoRA 수학, Timestep 분포, LR 스케줄링.
-
-→ [상세 보기](training/index.md)
-
-## 아키텍처
-
-UNet, DiT, MMDiT, VAE, Attention, Text Encoder. 모델을 구성하는 부품의 수학적 구조.
-
-→ [상세 보기](architecture/index.md)
+1. [확산 수학](diffusion/index.md)
+2. [훈련·최적화 수학](training/index.md)
+3. [샘플러](samplers/index.md)
+4. [아키텍처](architecture/index.md)

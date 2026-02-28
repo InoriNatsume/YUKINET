@@ -1,27 +1,94 @@
-﻿
-
 # Scheduler: karras
 
-Scheduler는 solver 식 자체보다 sigma grid(시간 재매개화)를 바꾸어 오차 분포와 경로 성향을 조정한다.
-$$ \sigma_i=(\sigma_{\max}^{1/\rho}+r_i(\sigma_{\min}^{1/\rho}-\sigma_{\max}^{1/\rho}))^\rho $$
-rho로 밀도 제어
+Karras scheduler는 solver 공식을 바꾸지 않고 `sigma` 격자만 재배치해서
+오차가 쌓이는 구간(`h_k`)을 조정합니다.
 
-## 기호 계약(정의역/공역/조건)
+## 0) 프레임워크 (Top-Down)
 
-| 항목 | 수식 | 설명 |
+| 기호 | 타입(정의역 -> 공역) | 상태 | 의미 |
+|---|---|---|---|
+| `N` | $N \in \mathbb{N}$ | 고정 | 전체 step 수 |
+| $\Sigma$ | $\Sigma=(0,\infty)$ | 고정 | sigma 공역 |
+| `S` | $\sym{Smap}{S}:\{0,\dots,N\}\to\Sigma$ | 설계 대상 | scheduler 사상 |
+| `k` | $k\in\{0,\dots,N\}$ | 임의 | step index |
+| `u` | $u\in[0,1]$ | 임의 | 정규화된 시간 좌표 |
+| $\rho$ | $\rho>0$ | 고정 하이퍼파라미터 | 메쉬 곡률 제어 |
+| $\sigma_k$ | $\sym{sigmak}{\sigma_k}=S(k)$ | `S,k` 고정 후 결정 | k번째 sigma |
+
+핵심 사상:
+
+\[
+\sigma(u)=
+\left(
+\sigma_{\max}^{1/\rho}
++
+u\bigl(\sigma_{\min}^{1/\rho}-\sigma_{\max}^{1/\rho}\bigr)
+\right)^\rho,\quad u\in[0,1]
+\]
+
+## 1) 제약을 단계적으로 적용
+
+1. 경계 고정: $\sigma_{\max}>\sigma_{\min}>0$  
+   이유: 역확산 시작/종료 노이즈 레벨을 명확히 고정해야 합니다.
+2. 이산화: `u_k=k/N`, $\sigma_k=\sigma(u_k)$  
+   이유: 연속 사상을 수치 적분 step으로 일관되게 샘플링합니다.
+3. 단조성 확인: $\sigma_{k+1}\le \sigma_k$  
+   이유: 고노이즈 -> 저노이즈 방향의 역적분을 보장합니다.
+
+## 2) 오차와 직접 연결되는 양
+
+\[
+h_k:=|\lambda_{k+1}-\lambda_k|,\quad
+\lambda_k:=\log\alpha_k-\log\sigma_k,\quad
+\|e_{\mathrm{global}}\|\approx C\max_k h_k^p
+\]
+
+scheduler가 바꾸는 것은 결국 `h_k`의 분포입니다.
+
+## 3) 조건 분기 (rho 값)
+
+| 조건 | 해석 | 경향 |
 |---|---|---|
-| 스케줄 맵 | $S:\{0,\dots,N\}\to\Sigma\subset(0,\infty)$ | step index를 sigma로 매핑. |
-| mesh 변수 | $h_k=\|\lambda_{k+1}-\lambda_k\|,\ \lambda=\log\alpha-\log\sigma$ | 오차식에 직접 들어가는 유효 step. |
-| 오차 스케일 | $\\|e_{global}\\|\approx C\max_k h_k^p$ | 동일 solver에서 scheduler 품질 차이의 핵심. |
-| 형상 파라미터 | $\rho>0$ | mesh 밀도 곡률을 제어. |
+| $\rho=1$ | 선형 보간과 유사 | 균등한 배분 |
+| $\rho>1$ | 저노이즈 쪽 분해능 증가 | 디테일 복원 쪽 강화 |
+| $0<\rho<1$ | 고노이즈 쪽 분해능 증가 | 구조 형성 쪽 강화 |
 
-## 메쉬(시간 재매개화) 수학
-$$ \sigma(u)=\left(\sigma_{\max}^{1/\rho}+u(\sigma_{\min}^{1/\rho}-\sigma_{\max}^{1/\rho})\right)^\rho,\ u\in[0,1] $$$$h_k:=|\lambda_{k+1}-\lambda_k|,\quad \lambda=\log\alpha-\log\sigma,\quad \|e_{\mathrm{global}}\|\approx C\max_k h_k^p$$
-rho로 고/저 sigma 구간의 mesh 밀도를 조정한다.
+## 4) 구체 예시 (원소 나열)
 
-rho가 커질수록 저노이즈 구간 분해능이 증가해 세부 복원에 유리할 수 있다.
+\[
+K=\{0,1,2,3,4\},\quad U=\left\{0,\frac14,\frac12,\frac34,1\right\}
+\]
 
-## Sampler와의 결합 해석
+경계를 $\sigma_{\max}=14$, $\sigma_{\min}=0.1$, $\rho=7$로 두면
 
-같은 sampler라도 scheduler가 바뀌면 고 sigma 구간과 저 sigma 구간의 스텝 밀도가 달라지고, 결과적으로 세부 질감/구조 보존/수렴 속도 균형이 달라진다.
-$$x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k,\quad A_k,B_k,C_k,D_k \text{는 스케줄 메쉬에 의해 간접적으로 변한다}$$
+\[
+S:K\to(0,\infty),\quad
+S(k)=\sigma(k/4)
+\]
+
+즉,
+
+\[
+S(0)=\sigma(0),\ S(1)=\sigma(1/4),\ S(2)=\sigma(1/2),\ S(3)=\sigma(3/4),\ S(4)=\sigma(1)
+\]
+
+## 5) 의존성 그래프
+
+```mermaid
+flowchart LR
+  A["k in {0..N}"] --> B["u_k = k/N"]
+  B --> C["sigma_k = sigma(u_k; rho)"]
+  C --> D["lambda_k = log(alpha_k)-log(sigma_k)"]
+  D --> E["h_k = |lambda_{k+1}-lambda_k|"]
+  E --> F["global error scale"]
+```
+
+## 6) Sampler 결합 관점
+
+같은 solver라도 `S`가 바뀌면 각 step이 놓이는 구간이 달라져
+
+\[
+x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\mathrm{history})+D_k\xi_k
+\]
+
+에서 계수(`A_k,B_k,C_k,D_k`)가 작동하는 regime이 달라집니다.

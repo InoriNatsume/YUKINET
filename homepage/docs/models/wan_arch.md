@@ -4,9 +4,9 @@
 
 ## 아키텍처 개요
 
-$$
+\[
 \text{Video }(B,C,F,H,W)\xrightarrow{\text{3D-VAE}}\text{Latent }(B,C_z,F',H',W')\xrightarrow{\text{3D-DiT}_\theta}v_\theta
-$$
+\]
 
 ### 3D-DiT 블록 구조
 
@@ -23,21 +23,21 @@ Wan 모델은 시공간(Spatio-Temporal) 어텐션을 위한 3D Transformer 아�
 
 ## Flow Matching 훈련
 
-$$
+\[
 \mathcal{L}=\mathbb{E}_{z_0,\epsilon,t}\left[\|v_\theta(x_t,t,c)-(\epsilon-z_0)\|^2\right]
-$$
+\]
 
-$$
+\[
 x_t=(1-t)z_0+t\epsilon
-$$
+\]
 
 ### Timestep 분포
 
 DiffSynth-Studio는 **bell-shaped** 분포를 사용하여 중간 타임스텝에 더 많은 가중치를 부여합니다:
 
-$$
+\[
 p(t)\propto\frac{1}{t(1-t)}\cdot\exp\!\left(-\frac{(\text{logit}(t)-\mu)^2}{2s^2}\right)
-$$
+\]
 
 ## 지원 변형 모델
 
@@ -81,23 +81,23 @@ $$
 
 ### FlowMatchSFTLoss (기본)
 
-$$
+\[
 \mathcal{L}_\text{SFT}=\|v_\theta-(\epsilon-z_0)\|^2
-$$
+\]
 
 ### DirectDistillLoss (증류)
 
-$$
+\[
 \mathcal{L}_\text{distill}=\|v_\theta^{\text{student}}-v_{\theta'}^{\text{teacher}}\|^2
-$$
+\]
 
 Teacher 모델의 출력을 직접 모방하여 빠른 수렴 달성
 
 ### TrajectoryImitationLoss (궤적 모방)
 
-$$
+\[
 \mathcal{L}_\text{traj}=\sum_{i}\|x_{t_i}^{\text{student}}-x_{t_i}^{\text{teacher}}\|^2
-$$
+\]
 
 ODE 궤적 전체를 모방하여 더 안정적인 증류
 
@@ -112,3 +112,4 @@ ODE 궤적 전체를 모방하여 더 안정적인 증류
 | Mixed Precision | BF16 |
 | Gradient Checkpointing | 필수 |
 | Block Swap | VRAM
+

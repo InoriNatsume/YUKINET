@@ -1,12 +1,15 @@
-﻿
+
 
 # Sampler: dpm_fast
-family: DPMstochastic: optionalcfg_pp: nogpu_variant: nostandalone: no
 **ComfyUI 함수 시그니처**
 `sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1., noise_sampler=None)`
 
 **docstring:** DPM-Solver-Fast (fixed step size). See https://arxiv.org/abs/2206.00927.
-$$ x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1}) $$
+
+\[
+x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1})
+\]
+
 DPM 계열 deterministic 해석.
 
 결정론 경로로 보면 확산항이 제거된 continuity equation 관점: $\partial_t\rho+\nabla\cdot(\rho v)=0$. 동적 OT(Benamou-Brenier) 형태의 수송 해석이 용이하다.
@@ -22,7 +25,19 @@ DPM 계열 deterministic 해석.
 | global error | $O(h)$ |
 | strong/weak 관점 | 구체 구현에 의존 |
 | stability 메모 | 스케줄/노이즈 설정에 의존 |
-$$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t$$$$\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t
+\]
+
+\[
+\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -33,7 +48,19 @@ $$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \p
 | 스텝 제어 | 고정 mesh 위에서 noise injection 파라미터(eta, s_noise 등)로 분산 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | 기본 latent + 중간 stage 텐서 저장 비용이 주된 메모리 사용처. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u)$$$$x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u)
+\]
+
+\[
+x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top
+\]
+
 **family:** DPM / **stochastic:** optional
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -41,7 +68,11 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `dpm_fast` / **family:** DPM
 
 ### 순수수학 유도 스케치
-$$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}$$
+
+\[
+x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}
+\]
+
 이 항 분해에서 drift/correction/noise를 어떤 차수로 근사하는지가 sampler family의 본질이다.
 
 ### 수치해석 구현 절차
@@ -91,7 +122,7 @@ $$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 | 확률강도 | $\eta\ge0$ | noise 주입 강도/드리프트 감쇠 결합. |
 | 노이즈 배율 | $s_{noise}\ge0$ | 분산 스케일 파라미터. |
 
@@ -140,3 +171,5 @@ def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback
             dpm_solver.info_callback = lambda info: callback({'sigma': dpm_solver.sigma(info['t']), 'sigma_hat': dpm_solver.sigma(info['t_up']), **info})
         return dpm_solver.dpm_solver_fast(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), n, eta, s_noise, noise_sampler)
 ```
+
+

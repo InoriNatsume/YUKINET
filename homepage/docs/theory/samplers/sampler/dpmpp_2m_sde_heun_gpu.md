@@ -1,10 +1,13 @@
-﻿
+
 
 # Sampler: dpmpp_2m_sde_heun_gpu
-family: DPM++stochastic: yescfg_pp: nogpu_variant: yesstandalone: yes
 **ComfyUI 함수 시그니처**
 `sample_dpmpp_2m_sde_heun_gpu(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, solver_type='heun')`
-$$ x\leftarrow\frac{\sigma_t}{\sigma_s}e^{-\eta h}x+\alpha_t(-\mathrm{expm1}(-h_\eta))\hat{x}_0+\mathrm{corr}_{2M}+\sigma_t\sqrt{-\mathrm{expm1}(-2\eta h)}\,s_{\mathrm{noise}}\xi $$
+
+\[
+x\leftarrow\frac{\sigma_t}{\sigma_s}e^{-\eta h}x+\alpha_t(-\mathrm{expm1}(-h_\eta))\hat{x}_0+\mathrm{corr}_{2M}+\sigma_t\sqrt{-\mathrm{expm1}(-2\eta h)}\,s_{\mathrm{noise}}\xi
+\]
+
 2M 계열은 이전 step 정보를 활용하는 반-다단계 구조. solver_type(midpoint/heun)에 따라 correction 항의 안정성/정확도 특성이 달라진다.
 
 FPE 관점에서 drift + diffusion가 모두 활성화된다: $\partial_t\rho=-\nabla\cdot(\rho b)+\frac12 g^2\Delta\rho$. OT 관점에서는 entropic regularization이 있는 bridge 해석이 자연스럽다.
@@ -20,7 +23,19 @@ FPE 관점에서 drift + diffusion가 모두 활성화된다: $\partial_t\rho=-\
 | global error | $O(h^2)$ |
 | strong/weak 관점 | SDE 항이 있으면 diffusion 분산은 유지, correction은 deterministic bias 완화에 기여 |
 | stability 메모 | history 기반 보정으로 저스텝에서도 비교적 안정적인 품질 |
-$$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t$$$$\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t
+\]
+
+\[
+\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -31,7 +46,19 @@ $$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \p
 | 스텝 제어 | 고정 mesh 위에서 noise injection 파라미터(eta, s_noise 등)로 분산 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | 노이즈 샘플링/연산 일부가 GPU 경로로 최적화될 수 있다. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u)$$$$x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u)
+\]
+
+\[
+x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top
+\]
+
 **family:** DPM++ / **stochastic:** yes
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -39,7 +66,11 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `dpmpp_2m_sde_heun_gpu` / **family:** DPM++
 
 ### 순수수학 유도 스케치
-$$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}$$
+
+\[
+x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}
+\]
+
 이 항 분해에서 drift/correction/noise를 어떤 차수로 근사하는지가 sampler family의 본질이다.
 
 ### 수치해석 구현 절차
@@ -90,7 +121,7 @@ $$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 | 확률강도 | $\eta\ge0$ | noise 주입 강도/드리프트 감쇠 결합. |
 | 노이즈 배율 | $s_{noise}\ge0$ | 분산 스케일 파라미터. |
 | 보정자 선택 | $solver\_type\in\{\mathrm{midpoint},\mathrm{heun}\}$ | 보정식 계열 전환. |
@@ -140,3 +171,5 @@ def sample_dpmpp_2m_sde_heun_gpu(model, x, sigmas, extra_args=None, callback=Non
     noise_sampler = BrownianTreeNoiseSampler(x, sigma_min, sigma_max, seed=extra_args.get("seed", None), cpu=False) if noise_sampler is None else noise_sampler
     return sample_dpmpp_2m_sde_heun(model, x, sigmas, extra_args=extra_args, callback=callback, disable=disable, eta=eta, s_noise=s_noise, noise_sampler=noise_sampler, solver_type=solver_type)
 ```
+
+

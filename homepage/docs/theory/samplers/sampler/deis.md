@@ -1,10 +1,13 @@
-﻿
+
 
 # Sampler: deis
-family: N-DM / DEISstochastic: nocfg_pp: nogpu_variant: nostandalone: no
 **ComfyUI 함수 시그니처**
 `sample_deis(model, x, sigmas, extra_args=None, callback=None, disable=None, max_order=3, deis_mode='tab')`
-$$ x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1}) $$
+
+\[
+x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1})
+\]
+
 이력 기반 다단계 적분. 초기 워밍업 구간은 저차로 시작하고, 이후 이력 버퍼가 쌓이면서 고차 근사가 활성화된다.
 
 결정론 경로로 보면 확산항이 제거된 continuity equation 관점: $\partial_t\rho+\nabla\cdot(\rho v)=0$. 동적 OT(Benamou-Brenier) 형태의 수송 해석이 용이하다.
@@ -20,7 +23,19 @@ $$ x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1}) $$
 | global error | $O(h^m)$ |
 | strong/weak 관점 | 초기 warm-up 구간에서는 유효 차수가 낮고 이후 history 축적으로 상승 |
 | stability 메모 | 메쉬 불균일이 크면 계수 조건수가 악화될 수 있어 스케줄과 동시 튜닝 필요 |
-$$\mathcal{L}_t\varphi=v_t\cdot\nabla\varphi,\quad \partial_t\rho_t+\nabla\cdot(\rho_t v_t)=0$$$$\min_{\rho,v}\int_0^1\!\!\int \frac12\|v_t(x)\|^2\rho_t(x)\,dx\,dt,\quad \partial_t\rho+\nabla\cdot(\rho v)=0$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=v_t\cdot\nabla\varphi,\quad \partial_t\rho_t+\nabla\cdot(\rho_t v_t)=0
+\]
+
+\[
+\min_{\rho,v}\int_0^1\!\!\int \frac12\|v_t(x)\|^2\rho_t(x)\,dx\,dt,\quad \partial_t\rho+\nabla\cdot(\rho v)=0
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -31,7 +46,19 @@ $$\mathcal{L}_t\varphi=v_t\cdot\nabla\varphi,\quad \partial_t\rho_t+\nabla\cdot(
 | 스텝 제어 | 고정 mesh의 deterministic stepper 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | history 버퍼 메모리와 계수 연산(벡터화) 비용이 핵심. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u)$$$$x_{k+1}=m_k(x_k),\quad \partial_t\rho+\nabla\cdot(\rho v)=0$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u)
+\]
+
+\[
+x_{k+1}=m_k(x_k),\quad \partial_t\rho+\nabla\cdot(\rho v)=0
+\]
+
 **family:** N-DM / DEIS / **stochastic:** no
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -39,7 +66,11 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `deis` / **family:** N-DM / DEIS
 
 ### 순수수학 유도 스케치
-$$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}$$
+
+\[
+x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}
+\]
+
 이 항 분해에서 drift/correction/noise를 어떤 차수로 근사하는지가 sampler family의 본질이다.
 
 ### 수치해석 구현 절차
@@ -86,7 +117,7 @@ $$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 
 ## 공통 인자(시그니처 공통부)
 
@@ -137,3 +168,5 @@ def sample_deis(model, x, sigmas, extra_args=None, callback=None, disable=None, 
 
         x_cur = x_next
 ```
+
+

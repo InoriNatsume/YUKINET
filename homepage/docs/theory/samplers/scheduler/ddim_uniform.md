@@ -1,27 +1,85 @@
-﻿
-
 # Scheduler: ddim_uniform
 
-Scheduler는 solver 식 자체보다 sigma grid(시간 재매개화)를 바꾸어 오차 분포와 경로 성향을 조정한다.
-$$ \text{uniform stride on discrete ladder} $$
-DDIM 느낌의 간격
+`ddim_uniform`은 학습 시 사용한 이산 timestep ladder에서
+균등 stride로 인덱스를 뽑아 sigma를 구성합니다.
 
-## 기호 계약(정의역/공역/조건)
+## 0) 프레임워크 (Top-Down)
 
-| 항목 | 수식 | 설명 |
+| 기호 | 타입(정의역 -> 공역) | 상태 | 의미 |
+|---|---|---|---|
+| `T` | $T\in\mathbb{N}$ | 고정 | 학습 timestep 개수 |
+| `N` | $N\in\mathbb{N}$ | 고정 | 추론 step 개수 |
+| $\Sigma_{\mathrm{train}}$ | $\{\sigma^{train}_0,\dots,\sigma^{train}_{T-1}\}$ | 고정 | 학습 sigma ladder |
+| $i_k$ | $i_k\in\{0,\dots,T-1\}$ | $k$ 고정 후 결정 | 선택된 ladder index |
+| `S` | $\sym{Smap}{S}:\{0,\dots,N-1\}\to(0,\infty)$ | 설계 대상 | scheduler 사상 |
+| $\sigma_k$ | $\sym{sigmak}{\sigma_k}=S(k)$ | 결정 | k번째 sigma |
+
+핵심 매핑:
+
+\[
+i_k=\operatorname{round}\!\left(k\cdot\frac{T-1}{N-1}\right),\quad
+\sigma_k=\sigma^{train}_{i_k}
+\]
+
+## 1) 제약을 단계적으로 적용
+
+1. $N\le T$ (보통)  
+   이유: 추론 step이 학습 ladder 해상도를 초과하면 중복/보간 정책이 필요합니다.
+2. $i_k$ 단조 증가 보장  
+   이유: 역확산 순서 보존.
+3. 필요 시 끝점 고정 (`i_0=0`, `i_{N-1}=T-1`)  
+   이유: 시작/종료 노이즈 경계 일치.
+
+## 2) 오차 연결
+
+\[
+h_k:=|\lambda_{k+1}-\lambda_k|,\quad
+\lambda_k:=\log\alpha_k-\log\sigma_k,\quad
+\|e_{\mathrm{global}}\|\approx C\max_k h_k^p
+\]
+
+이 방식은 $h_k$를 연속 함수가 아니라 이산 ladder stride로 결정합니다.
+
+## 3) 경계 분기
+
+| 조건 | 해석 | 결과 경향 |
 |---|---|---|
-| 스케줄 맵 | $S:\{0,\dots,N\}\to\Sigma\subset(0,\infty)$ | step index를 sigma로 매핑. |
-| mesh 변수 | $h_k=\|\lambda_{k+1}-\lambda_k\|,\ \lambda=\log\alpha-\log\sigma$ | 오차식에 직접 들어가는 유효 step. |
-| 오차 스케일 | $\\|e_{global}\\|\approx C\max_k h_k^p$ | 동일 solver에서 scheduler 품질 차이의 핵심. |
-| 이산 ladder | $k\mapsto i_k\in\{0,\dots,T\}$ | 학습된 이산 sigma 테이블 stride. |
+| $N \ll T$ | 거친 stride | 빠르지만 디테일 손실 가능 |
+| $N \approx T$ | 촘촘한 stride | 품질↑, 속도↓ |
 
-## 메쉬(시간 재매개화) 수학
-$$ \sigma_k=\text{discrete ladder stride}(k) $$$$h_k:=|\lambda_{k+1}-\lambda_k|,\quad \lambda=\log\alpha-\log\sigma,\quad \|e_{\mathrm{global}}\|\approx C\max_k h_k^p$$
-학습된 이산 ladder를 직접 stride 샘플링한다.
+## 4) 구체 예시 (원소 나열)
 
-학습 분포와 직접적으로 맞닿아 있고 구현 해석이 직관적이다.
+\[
+T=10,\ N=4,\ K=\{0,1,2,3\}
+\]
 
-## Sampler와의 결합 해석
+그러면
 
-같은 sampler라도 scheduler가 바뀌면 고 sigma 구간과 저 sigma 구간의 스텝 밀도가 달라지고, 결과적으로 세부 질감/구조 보존/수렴 속도 균형이 달라진다.
-$$x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k,\quad A_k,B_k,C_k,D_k \text{는 스케줄 메쉬에 의해 간접적으로 변한다}$$
+\[
+i_0=0,\ i_1=3,\ i_2=6,\ i_3=9
+\]
+
+즉
+
+\[
+S(0)=\sigma^{train}_0,\ S(1)=\sigma^{train}_3,\ S(2)=\sigma^{train}_6,\ S(3)=\sigma^{train}_9
+\]
+
+## 5) 의존성 그래프
+
+```mermaid
+flowchart LR
+  A["k in {0..N-1}"] --> B["i_k = round(k*(T-1)/(N-1))"]
+  B --> C["sigma_k = sigma_train[i_k]"]
+  C --> D["lambda_k"]
+  D --> E["h_k"]
+  E --> F["global error scale"]
+```
+
+## 6) Sampler 결합 관점
+
+\[
+x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\mathrm{history})+D_k\xi_k
+\]
+
+`ddim_uniform`은 구현 해석이 직관적이고 재현성이 높다는 장점이 있습니다.

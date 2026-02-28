@@ -1,10 +1,13 @@
-﻿
+
 
 # Sampler: uni_pc_bh2
-family: UniPCstochastic: nocfg_pp: nogpu_variant: nostandalone: no
 **ComfyUI 함수 시그니처**
 `sample_unipc_bh2(model, noise, sigmas, extra_args=None, callback=None, disable=False)`
-$$ x_{k+1}=\Phi_{\mathrm{UniPC}} $$
+
+\[
+x_{k+1}=\Phi_{\mathrm{UniPC}}
+\]
+
 UniPC 다항 보정 계열. k-diffusion 구현과 별개 경로이므로 내부 보정 로직과 step control 규약을 별도로 보는 것이 좋다.
 
 결정론 경로로 보면 확산항이 제거된 continuity equation 관점: $\partial_t\rho+\nabla\cdot(\rho v)=0$. 동적 OT(Benamou-Brenier) 형태의 수송 해석이 용이하다.
@@ -16,11 +19,23 @@ UniPC 다항 보정 계열. k-diffusion 구현과 별개 경로이므로 내부 
 | 항목 | 내용 |
 |---|---|
 | method class | Unified predictor-corrector |
-| local truncation | $단계/보정 차수에 따라 가변$ |
-| global error | $저스텝 품질을 노린 고차 보정 경로$ |
+| local truncation | 단계/보정 차수에 따라 가변 |
+| global error | 저스텝 품질을 노린 고차 보정 경로 |
 | strong/weak 관점 | 구현 경로가 k-diffusion과 별개라 내부 보정 항 해석을 독립적으로 보는 것이 안전 |
 | stability 메모 | step 수가 매우 작을 때의 안정화 목적이 강함 |
-$$\mathcal{L}_t\varphi=v_t\cdot\nabla\varphi,\quad \partial_t\rho_t+\nabla\cdot(\rho_t v_t)=0$$$$\min_{\rho,v}\int_0^1\!\!\int \frac12\|v_t(x)\|^2\rho_t(x)\,dx\,dt,\quad \partial_t\rho+\nabla\cdot(\rho v)=0$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=v_t\cdot\nabla\varphi,\quad \partial_t\rho_t+\nabla\cdot(\rho_t v_t)=0
+\]
+
+\[
+\min_{\rho,v}\int_0^1\!\!\int \frac12\|v_t(x)\|^2\rho_t(x)\,dx\,dt,\quad \partial_t\rho+\nabla\cdot(\rho v)=0
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -31,7 +46,19 @@ $$\mathcal{L}_t\varphi=v_t\cdot\nabla\varphi,\quad \partial_t\rho_t+\nabla\cdot(
 | 스텝 제어 | 고정 mesh의 deterministic stepper 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | 기본 latent + 중간 stage 텐서 저장 비용이 주된 메모리 사용처. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u)$$$$x_{k+1}=m_k(x_k),\quad \partial_t\rho+\nabla\cdot(\rho v)=0$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u)
+\]
+
+\[
+x_{k+1}=m_k(x_k),\quad \partial_t\rho+\nabla\cdot(\rho v)=0
+\]
+
 **family:** UniPC / **stochastic:** no
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -39,7 +66,11 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `uni_pc_bh2` / **family:** UniPC
 
 ### 순수수학 유도 스케치
-$$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}$$
+
+\[
+x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}
+\]
+
 이 항 분해에서 drift/correction/noise를 어떤 차수로 근사하는지가 sampler family의 본질이다.
 
 ### 수치해석 구현 절차
@@ -87,7 +118,7 @@ $$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 
 ## 공통 인자(시그니처 공통부)
 
@@ -120,3 +151,5 @@ $$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(
 def sample_unipc_bh2(model, noise, sigmas, extra_args=None, callback=None, disable=False):
     return sample_unipc(model, noise, sigmas, extra_args, callback, disable, variant='bh2')
 ```
+
+

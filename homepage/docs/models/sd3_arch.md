@@ -4,17 +4,17 @@
 
 ## MMDiT 아키텍처
 
-$$
+\[
 z_0 \xrightarrow{x_t=(1-\sigma_t)z_0+\sigma_t\epsilon} x_t \xrightarrow{\text{MMDiT}_\theta} v_\theta
-$$
+\]
 
 ### 핵심 혁신: Multi-Modal Attention
 
 이미지 토큰과 텍스트 토큰이 **동일 어텐션 공간**에서 상호작용. 각 스트림은 독립적 Linear projection → 합산된 QKV로 joint attention → 각 스트림이 독립적 출력 projection.
 
-$$
+\[
 \text{Attn}(Q,K,V) = \text{softmax}\!\left(\frac{[Q_\text{img};\,Q_\text{txt}]\cdot[K_\text{img};\,K_\text{txt}]^\top}{\sqrt{d_\text{head}}}\right)\cdot[V_\text{img};\,V_\text{txt}]
-$$
+\]
 
 ### Triple Text Encoder
 
@@ -28,15 +28,15 @@ SD3.5 Medium은 CLIP-L + CLIP-G만 사용 (T5 제외). `--clip_l`, `--clip_g`, `
 
 ## Rectified Flow 훈련
 
-$$
+\[
 \mathcal{L}_\text{RF}=\mathbb{E}_{z_0,\epsilon,t}\left[\|v_\theta(x_t,t,c)-(\epsilon-z_0)\|^2\right]
-$$
+\]
 
 ### Timestep / 시그마 변환
 
-$$
+\[
 \sigma(t)=t,\quad x_t=(1-\sigma)z_0+\sigma\epsilon \quad\text{(linear interpolation)}
-$$
+\]
 
 SD3는 **shift=3.0**을 기본 사용: $\sigma'=\frac{s\cdot\sigma}{1+(s-1)\sigma}$
 

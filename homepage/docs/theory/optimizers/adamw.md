@@ -6,7 +6,7 @@
 
 Loshchilov & Hutter (2019). Weight decay를 gradient update에서 분리한 Adam 변형.
 
-$$
+\[
 \begin{aligned}
 g_t &= \nabla_\theta \mathcal{L}(\theta_t) \\
 m_t &= \beta_1 m_{t-1} + (1-\beta_1) g_t \quad &\text{(1st moment — momentum)} \\
@@ -15,7 +15,7 @@ v_t &= \beta_2 v_{t-1} + (1-\beta_2) g_t^2 \quad &\text{(2nd moment — adaptive
 \hat{v}_t &= \frac{v_t}{1-\beta_2^t} \quad &\text{(bias correction)} \\
 \theta_{t+1} &= \theta_t - \eta\left(\frac{\hat{m}_t}{\sqrt{\hat{v}_t}+\epsilon} + \lambda\theta_t\right) \quad &\text{(decoupled WD)}
 \end{aligned}
-$$
+\]
 
 ## 파라미터 상세
 
@@ -28,9 +28,9 @@ $$
 
 ## 메모리 사용량
 
-$$
+\[
 \text{Optimizer States}=\underbrace{4|\theta|}_{\text{m (FP32)}}+\underbrace{4|\theta|}_{\text{v (FP32)}}=8|\theta|\text{ bytes}
-$$
+\]
 
 예: 1B 파라미터 → 8GB optimizer states
 

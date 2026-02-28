@@ -1,12 +1,15 @@
-﻿
+
 
 # Sampler: dpm_adaptive
-family: DPMstochastic: optionalcfg_pp: nogpu_variant: nostandalone: no
 **ComfyUI 함수 시그니처**
 `sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callback=None, disable=None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., noise_sampler=None, return_info=False)`
 
 **docstring:** DPM-Solver-12 and 23 (adaptive step size). See https://arxiv.org/abs/2206.00927.
-$$ \text{adaptive DPM-solver with local error test }(rtol,atol)\ \&\ \text{PID step controller} $$
+
+\[
+\text{adaptive DPM-solver with local error test }(rtol,atol)\ \&\ \text{PID step controller}
+\]
+
 적응형 step-size 제어(PID + local error test). rtol/atol과 accept_safety가 품질-시간 Pareto를 결정한다.
 
 결정론 경로로 보면 확산항이 제거된 continuity equation 관점: $\partial_t\rho+\nabla\cdot(\rho v)=0$. 동적 OT(Benamou-Brenier) 형태의 수송 해석이 용이하다.
@@ -19,10 +22,22 @@ $$ \text{adaptive DPM-solver with local error test }(rtol,atol)\ \&\ \text{PID s
 |---|---|
 | method class | adaptive DPM solver |
 | local truncation | $\\|e_k\\|\le \text{atol} + \text{rtol}\cdot\\|x_k\\|$ |
-| global error | $허용오차 기반으로 자동 제어(고정 차수 표현보다 tolerance 해석이 적합)$ |
+| global error | 허용오차 기반으로 자동 제어(고정 차수 표현보다 tolerance 해석이 적합) |
 | strong/weak 관점 | accept/reject와 PID 계수가 계산량-오차 균형을 직접 제어 |
 | stability 메모 | accept_safety와 초기 step(h_init) 설정이 수렴/속도의 핵심 |
-$$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t$$$$\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t
+\]
+
+\[
+\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -33,7 +48,19 @@ $$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \p
 | 스텝 제어 | 오차 추정 + PID(step controller) 기반 accept/reject 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | 기본 latent + 중간 stage 텐서 저장 비용이 주된 메모리 사용처. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u)$$$$x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u)
+\]
+
+\[
+x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top
+\]
+
 **family:** DPM / **stochastic:** optional
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -41,7 +68,15 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `dpm_adaptive` / **family:** DPM
 
 ### 순수수학 유도 스케치
-$$x_{k+1}^{[p]},\ x_{k+1}^{[p-1]}\ \text{를 동시 계산},\quad err_k=\frac{\|x_{k+1}^{[p]}-x_{k+1}^{[p-1]}\|}{atol+rtol\|x_{k+1}^{[p]}\|}$$$$err_k\le1\ \Rightarrow\ accept,\quad h_{new}=h\cdot s\cdot err_k^{-\beta}\cdot err_{k-1}^{\gamma}$$
+
+\[
+x_{k+1}^{[p]},\ x_{k+1}^{[p-1]}\ \text{를 동시 계산},\quad err_k=\frac{\|x_{k+1}^{[p]}-x_{k+1}^{[p-1]}\|}{atol+rtol\|x_{k+1}^{[p]}\|}
+\]
+
+\[
+err_k\le1\ \Rightarrow\ accept,\quad h_{new}=h\cdot s\cdot err_k^{-\beta}\cdot err_{k-1}^{\gamma}
+\]
+
 주요 오차원천: embedded error estimator 편향, 과도한 reject 반복, 모델 비매끄러움.
 
 ### 수치해석 구현 절차
@@ -92,7 +127,7 @@ $$x_{k+1}^{[p]},\ x_{k+1}^{[p-1]}\ \text{를 동시 계산},\quad err_k=\frac{\|
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 | 확률강도 | $\eta\ge0$ | noise 주입 강도/드리프트 감쇠 결합. |
 | 노이즈 배율 | $s_{noise}\ge0$ | 분산 스케일 파라미터. |
 | 상대오차 허용치 | $rtol>0$ | adaptive accept/reject 기준. |
@@ -165,3 +200,5 @@ def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callbac
         return x, info
     return x
 ```
+
+

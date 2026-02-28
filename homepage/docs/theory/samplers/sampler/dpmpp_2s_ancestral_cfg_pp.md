@@ -1,12 +1,15 @@
-﻿
+
 
 # Sampler: dpmpp_2s_ancestral_cfg_pp
-family: DPM++stochastic: yescfg_pp: yesgpu_variant: nostandalone: no
 **ComfyUI 함수 시그니처**
 `sample_dpmpp_2s_ancestral_cfg_pp(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None)`
 
 **docstring:** Ancestral sampling with DPM-Solver++(2S) second-order steps.
-$$ x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1}) $$
+
+\[
+x_{k+1}=\Phi(x_k,\sigma_k,\sigma_{k+1})
+\]
+
 2차 보정이 들어가는 계열로, 동일 step에서 Euler보다 drift 근사 bias가 작다. 다만 SDE 변형은 noise 항 영향으로 분산 trade-off가 발생한다.
 
 FPE 관점에서 drift + diffusion가 모두 활성화된다: $\partial_t\rho=-\nabla\cdot(\rho b)+\frac12 g^2\Delta\rho$. OT 관점에서는 entropic regularization이 있는 bridge 해석이 자연스럽다.
@@ -22,7 +25,19 @@ FPE 관점에서 drift + diffusion가 모두 활성화된다: $\partial_t\rho=-\
 | global error | $O(h^2)$ |
 | strong/weak 관점 | 확률항이 있으면 강한 차수는 낮아질 수 있으나 평균 drift 근사 정확도는 우수 |
 | stability 메모 | Euler 대비 drift 오차가 작고, 중간 stage 평가 덕분에 곡률 변화에 상대적으로 강함 |
-$$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t$$$$\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)$$$$\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|$$
+
+\[
+\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \partial_t\rho_t=\mathcal{L}_t^\star\rho_t
+\]
+
+\[
+\rho_{k+1}\approx\arg\min_\rho\left(\frac{W_2^2(\rho,\rho_k)}{2\tau_k}+\mathcal{F}(\rho)\right)
+\]
+
+\[
+\|x(t_{k+1})-x_{k+1}\|\le C h_k^{p+1},\quad \|x(T)-x_N\|\le C\max_k h_k^p,\quad h_k:=|\lambda_{k+1}-\lambda_k|
+\]
+
 ### 수치해석/구현 관점
 
 | 구현 항목 | 내용 |
@@ -33,7 +48,19 @@ $$\mathcal{L}_t\varphi=b_t\cdot\nabla\varphi+\frac12 g_t^2\Delta\varphi,\quad \p
 | 스텝 제어 | 고정 mesh 위에서 noise injection 파라미터(eta, s_noise 등)로 분산 제어. |
 | 메쉬 변수 | $\lambda=\log\alpha-\log\sigma,\ h_k=\|\lambda_{k+1}-\lambda_k\|$ |
 | 저장/정밀도 메모 | 기본 latent + 중간 stage 텐서 저장 비용이 주된 메모리 사용처. |
-$$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k$$$$v_{\mathrm{cfg}}=v_u+w(v_c-v_u),\quad v_{\mathrm{cfg++}}=\Pi_{\mathcal{T}_{\rho}}(v_{\mathrm{cfg}})$$$$x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top$$
+
+\[
+\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k
+\]
+
+\[
+v_{\mathrm{cfg}}=v_u+w(v_c-v_u),\quad v_{\mathrm{cfg++}}=\Pi_{\mathcal{T}_{\rho}}(v_{\mathrm{cfg}})
+\]
+
+\[
+x_{k+1}=m_k(x_k)+G_k\xi_k,\ \xi_k\sim\mathcal{N}(0,I),\ \mathrm{Cov}[x_{k+1}|x_k]=G_kG_k^\top
+\]
+
 **family:** DPM++ / **stochastic:** yes
 
 ## 유도 스케치(순수수학) / 구현 절차(수치해석)
@@ -41,7 +68,11 @@ $$\lambda=\log\alpha-\log\sigma,\quad x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{
 **대상:** `dpmpp_2s_ancestral_cfg_pp` / **family:** DPM++
 
 ### 순수수학 유도 스케치
-$$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}$$
+
+\[
+x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(noise)}
+\]
+
 이 항 분해에서 drift/correction/noise를 어떤 차수로 근사하는지가 sampler family의 본질이다.
 
 ### 수치해석 구현 절차
@@ -92,7 +123,7 @@ $$x_{k+1}=x_k+\mathcal{I}_k^{(drift)}+\mathcal{C}_k^{(history)}+\mathcal{N}_k^{(
 | 제약 | 조건 | 의미 |
 |---|---|---|
 | mesh 단조성 | $\sigma_{k+1}\le\sigma_k$, $h_k:=\|\lambda_{k+1}-\lambda_k\|>0$ | 역적분 안정성 및 오차 분석의 기본 가정. |
-| drift 정칙성 | $\\|b_\theta(x,t)-b_\theta(y,t)\\|\le L\\|x-y\\|$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
+| drift 정칙성 | $\lVert b_\theta(x,t)-b_\theta(y,t)\rVert\le L\lVert x-y\rVert$ | 존재/유일성과 수치해석 수렴률에 필요한 대표 가정. |
 | 확률강도 | $\eta\ge0$ | noise 주입 강도/드리프트 감쇠 결합. |
 | 노이즈 배율 | $s_{noise}\ge0$ | 분산 스케일 파라미터. |
 
@@ -148,3 +179,5 @@ def sample_dpmpp_2s_ancestral_cfg_pp(model, x, sigmas, extra_args=None, callback
     s_in = x.new_ones([x.shape[0]])
     sigma_fn = lambda t: t.neg().exp()
 ```
+
+

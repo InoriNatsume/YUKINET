@@ -1,27 +1,96 @@
-﻿
-
 # Scheduler: linear_quadratic
 
-Scheduler는 solver 식 자체보다 sigma grid(시간 재매개화)를 바꾸어 오차 분포와 경로 성향을 조정한다.
-$$ \sigma\text{ 감쇠를 선형+이차로 설계} $$
-초반/후반 분리
+`linear_quadratic`은 시간축을 두 구간으로 나눠
+초반은 선형, 후반은 이차식으로 sigma를 배치하는 방식입니다.
 
-## 기호 계약(정의역/공역/조건)
+## 0) 프레임워크 (Top-Down)
 
-| 항목 | 수식 | 설명 |
+| 기호 | 타입(정의역 -> 공역) | 상태 | 의미 |
+|---|---|---|---|
+| `u` | $u\in[0,1]$ | 임의 | 정규화 시간 |
+| `u_c` | $u_c\in(0,1)$ | 고정 하이퍼파라미터 | 분기 경계점 |
+| `S` | $\sym{Smap}{S}:\{0,\dots,N\}\to(0,\infty)$ | 설계 대상 | scheduler 사상 |
+| $\sigma_k$ | $\sym{sigmak}{\sigma_k}=S(k)$ | 결정 | k번째 sigma |
+
+대표 정의(연속성 제약 포함):
+
+\[
+\sigma(u)=
+\begin{cases}
+a_0+a_1u, & 0\le u\le u_c \\
+b_0+b_1u+b_2u^2, & u_c < u\le 1
+\end{cases}
+\]
+
+계수는 보통 다음 조건으로 고정합니다.
+
+\[
+\sigma(0)=\sigma_{\max},\ 
+\sigma(1)=\sigma_{\min},\ 
+\sigma(u_c^-)=\sigma(u_c^+),\ 
+\sigma'(u_c^-)=\sigma'(u_c^+)
+\]
+
+## 1) 제약을 단계적으로 적용
+
+1. 경계값 고정: $\sigma_{\max}>\sigma_{\min}>0$  
+   이유: 시작/종료 노이즈 레벨 정의.
+2. 분기점 `u_c` 선택  
+   이유: 구조 형성 구간과 디테일 구간을 분리 제어.
+3. 연속/미분가능 조건 부여  
+   이유: 분기점에서 step jump를 방지.
+4. 단조성 확인 ($\sigma_{k+1}\le\sigma_k$)  
+   이유: 역확산 방향 보장.
+
+## 2) 조건 분기 (u_c)
+
+| 조건 | 의미 | 결과 경향 |
 |---|---|---|
-| 스케줄 맵 | $S:\{0,\dots,N\}\to\Sigma\subset(0,\infty)$ | step index를 sigma로 매핑. |
-| mesh 변수 | $h_k=\|\lambda_{k+1}-\lambda_k\|,\ \lambda=\log\alpha-\log\sigma$ | 오차식에 직접 들어가는 유효 step. |
-| 오차 스케일 | $\\|e_{global}\\|\approx C\max_k h_k^p$ | 동일 solver에서 scheduler 품질 차이의 핵심. |
-| 일반 조건 | $\sigma_k>0,\ \sigma_{k+1}\le\sigma_k$ | 역적분용 단조성. |
+| `u_c` 작음 | 후반(이차) 구간 길어짐 | 저노이즈 디테일 튜닝 비중 증가 |
+| `u_c` 큼 | 초반(선형) 구간 길어짐 | 구조 안정화 비중 증가 |
 
-## 메쉬(시간 재매개화) 수학
-$$ \sigma(u)\approx a_0+a_1u+a_2u^2\ (\text{piecewise}) $$$$h_k:=|\lambda_{k+1}-\lambda_k|,\quad \lambda=\log\alpha-\log\sigma,\quad \|e_{\mathrm{global}}\|\approx C\max_k h_k^p$$
-선형+이차 감쇠를 조합해 초반/후반 분해능을 다르게 배치한다.
+## 3) 오차 연결
 
-초반 큰 이동과 후반 미세 보정을 분리해 튜닝하기 좋다.
+\[
+h_k:=|\lambda_{k+1}-\lambda_k|,\quad
+\lambda_k:=\log\alpha_k-\log\sigma_k,\quad
+\|e_{\mathrm{global}}\|\approx C\max_k h_k^p
+\]
 
-## Sampler와의 결합 해석
+구간별 곡률이 달라 `h_k` 분포를 의도적으로 비대칭 배치할 수 있습니다.
 
-같은 sampler라도 scheduler가 바뀌면 고 sigma 구간과 저 sigma 구간의 스텝 밀도가 달라지고, 결과적으로 세부 질감/구조 보존/수렴 속도 균형이 달라진다.
-$$x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k,\quad A_k,B_k,C_k,D_k \text{는 스케줄 메쉬에 의해 간접적으로 변한다}$$
+## 4) 구체 예시 (원소 나열)
+
+\[
+K=\{0,1,2,3,4\},\quad
+U=\left\{0,\frac14,\frac12,\frac34,1\right\},\quad
+u_c=\frac12
+\]
+
+그러면
+
+\[
+S(i)=\sigma(U_i),\quad
+S(0)=\sigma(0),\ S(1)=\sigma(1/4),\ S(2)=\sigma(1/2),\ S(3)=\sigma(3/4),\ S(4)=\sigma(1)
+\]
+
+## 5) 의존성 그래프
+
+```mermaid
+flowchart LR
+  A["k"] --> B["u_k = k/N"]
+  B --> C{"u_k <= u_c?"}
+  C -->|yes| D["sigma_k by linear branch"]
+  C -->|no| E["sigma_k by quadratic branch"]
+  D --> F["lambda_k"]
+  E --> F
+  F --> G["h_k and error"]
+```
+
+## 6) Sampler 결합 관점
+
+\[
+x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\mathrm{history})+D_k\xi_k
+\]
+
+분기형 스케줄러는 구간별로 다른 샘플링 성향을 내고 싶을 때 실무적으로 유용합니다.

@@ -4,9 +4,9 @@
 
 ## 아키텍처 특징
 
-$$
+\[
 \text{SDXL}=\underbrace{\text{UNet}_{2.6B}}_{\text{확장된 attention}}+\underbrace{\text{CLIP-L}+\text{OpenCLIP-G}}_{\text{이중 텍스트 인코더}}+\underbrace{\text{VAE}}_{\text{f=8}}
-$$
+\]
 
 | SD 1.x와 차이 | SDXL |
 |---|---|

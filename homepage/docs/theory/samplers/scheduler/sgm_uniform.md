@@ -1,27 +1,81 @@
-﻿
-
 # Scheduler: sgm_uniform
 
-Scheduler는 solver 식 자체보다 sigma grid(시간 재매개화)를 바꾸어 오차 분포와 경로 성향을 조정한다.
-$$ t\sim U,\ \sigma=\sigma(t)\ (\text{sgm}) $$
-SGM 스타일
+`sgm_uniform`은 SGM 좌표(보통 $\lambda=-\log\sigma$)에서 균등 간격을 두는 방식입니다.
+즉 `sigma` 자체가 아니라 로그 좌표를 균등화합니다.
 
-## 기호 계약(정의역/공역/조건)
+## 0) 프레임워크 (Top-Down)
 
-| 항목 | 수식 | 설명 |
+| 기호 | 타입(정의역 -> 공역) | 상태 | 의미 |
+|---|---|---|---|
+| `N` | $N\in\mathbb{N}$ | 고정 | 전체 step 수 |
+| $\lambda$ | $\lambda\in\mathbb{R}$ | 좌표계 정의 | SGM 시간 좌표 |
+| $\lambda_{\max},\lambda_{\min}$ | 실수, $\lambda_{\max}>\lambda_{\min}$ | 고정 | 시작/종료 경계 |
+| `S` | $\sym{Smap}{S}:\{0,\dots,N\}\to(0,\infty)$ | 설계 대상 | scheduler 사상 |
+| $\sigma_k$ | $\sym{sigmak}{\sigma_k}=S(k)$ | 결정 | k번째 sigma |
+
+핵심 매핑:
+
+\[
+\lambda_k=(1-u_k)\lambda_{\max}+u_k\lambda_{\min},\quad u_k=k/N
+\]
+
+\[
+\sigma_k=\exp(-\lambda_k)
+\]
+
+## 1) 제약을 단계적으로 적용
+
+1. $\lambda_{\max}>\lambda_{\min}$  
+   이유: 역적분 진행 방향을 고정합니다.
+2. `u_k=k/N`  
+   이유: SGM 좌표에서 균등 메쉬를 만듭니다.
+3. $\sigma_k=\exp(-\lambda_k)$  
+   이유: 항상 양수 sigma를 보장합니다.
+
+## 2) 오차 연결
+
+\[
+h_k:=|\lambda_{k+1}-\lambda_k|,\quad
+\|e_{\mathrm{global}}\|\approx C\max_k h_k^p
+\]
+
+이 방식에서는 `h_k`가 거의 상수여서 step ratio가 안정적입니다.
+
+## 3) 경계 분기
+
+| 조건 | 의미 | 결과 경향 |
 |---|---|---|
-| 스케줄 맵 | $S:\{0,\dots,N\}\to\Sigma\subset(0,\infty)$ | step index를 sigma로 매핑. |
-| mesh 변수 | $h_k=\|\lambda_{k+1}-\lambda_k\|,\ \lambda=\log\alpha-\log\sigma$ | 오차식에 직접 들어가는 유효 step. |
-| 오차 스케일 | $\\|e_{global}\\|\approx C\max_k h_k^p$ | 동일 solver에서 scheduler 품질 차이의 핵심. |
-| 일반 조건 | $\sigma_k>0,\ \sigma_{k+1}\le\sigma_k$ | 역적분용 단조성. |
+| `N` 증가 | `h_k` 감소 | 오차 감소, 시간 증가 |
+| 경계 폭 $\lambda_{\max}-\lambda_{\min}$ 증가 | 탐색 범위 확대 | 구조/디테일 양끝 부담 증가 |
 
-## 메쉬(시간 재매개화) 수학
-$$ t_k\sim U,\ \sigma_k=\sigma(t_k) $$$$h_k:=|\lambda_{k+1}-\lambda_k|,\quad \lambda=\log\alpha-\log\sigma,\quad \|e_{\mathrm{global}}\|\approx C\max_k h_k^p$$
-시간축 균등 분할 계열.
+## 4) 구체 예시 (원소 나열)
 
-모델 학습 시간축과의 정합성이 좋으면 기본선(baseline)으로 안정적이다.
+\[
+N=4,\ K=\{0,1,2,3,4\},\ \lambda_{\max}=4,\ \lambda_{\min}=0
+\]
 
-## Sampler와의 결합 해석
+그러면
 
-같은 sampler라도 scheduler가 바뀌면 고 sigma 구간과 저 sigma 구간의 스텝 밀도가 달라지고, 결과적으로 세부 질감/구조 보존/수렴 속도 균형이 달라진다.
-$$x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\text{history})+D_k\xi_k,\quad A_k,B_k,C_k,D_k \text{는 스케줄 메쉬에 의해 간접적으로 변한다}$$
+\[
+\lambda(K)=\{4,3,2,1,0\},\quad
+S(K)=\{e^{-4},e^{-3},e^{-2},e^{-1},1\}
+\]
+
+## 5) 의존성 그래프
+
+```mermaid
+flowchart LR
+  A["k in {0..N}"] --> B["u_k = k/N"]
+  B --> C["lambda_k linear interp"]
+  C --> D["sigma_k = exp(-lambda_k)"]
+  D --> E["h_k"]
+  E --> F["global error scale"]
+```
+
+## 6) Sampler 결합 관점
+
+\[
+x_{k+1}=A_kx_k+B_k\hat{x}_{0,k}+C_k(\mathrm{history})+D_k\xi_k
+\]
+
+`sgm_uniform`은 안정적인 기준 메쉬로 자주 쓰이며, 다른 scheduler 비교 기준선으로 유용합니다.

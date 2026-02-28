@@ -4,9 +4,9 @@
 
 ## 아키텍처 구조
 
-$$
+\[
 x_0 \xrightarrow{\text{VAE Encoder}} z_0 \xrightarrow{q(z_t|z_0)} z_t \xrightarrow{\text{UNet}_\theta(z_t,t,c)} \hat\epsilon \xrightarrow{\text{VAE Decoder}} \hat x_0
-$$
+\]
 
 ### UNet 구성
 
@@ -19,9 +19,27 @@ $$
 
 ## 훈련 목적함수
 
-> ### ε-prediction (기본)       $$ $$\mathcal{L}=\mathbb{E}_{z_0,\epsilon,t}\left[\|\epsilon_\theta(z_t,t,c)-\epsilon\|^2\right]$$ $$      SD 1.x 기본. 노이즈를 직접 예측.
+### ε-prediction (기본)
 
-> ### v-prediction (SD 2.x 선택)       $$ $$v_t=\sqrt{\bar\alpha_t}\epsilon-\sqrt{1-\bar\alpha_t}z_0$$ $$       $$ $$\mathcal{L}=\mathbb{E}\left[\|v_\theta(z_t,t,c)-v_t\|^2\right]$$ $$      --v_parameterization 플래그로 활성화.
+\[
+\mathcal{L}_\epsilon
+=
+\mathbb{E}_{z_0,\epsilon,t}\left[\|\epsilon_\theta(z_t,t,c)-\epsilon\|^2\right]
+\]
+
+SD 1.x 기본. 노이즈를 직접 예측합니다.
+
+### v-prediction (SD 2.x 선택)
+
+\[
+v_t=\sqrt{\bar\alpha_t}\epsilon-\sqrt{1-\bar\alpha_t}z_0
+\]
+
+\[
+\mathcal{L}_v=\mathbb{E}\left[\|v_\theta(z_t,t,c)-v_t\|^2\right]
+\]
+
+`--v_parameterization` 플래그로 활성화합니다.
 
 ## 훈련 모드 (sd-scripts)
 
@@ -41,3 +59,4 @@ $$
 | clip_skip | CLIP 레이어 깊이 | SD1: 2 (anime), 1 (photo) |
 | noise_offset | 밝기 학습 개선 | 0.05~0.1 |
 | min_snr_gamma | 손실 가중치 평활화 | 5 |
+

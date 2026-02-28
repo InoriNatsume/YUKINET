@@ -71,9 +71,12 @@ markdown_extensions:
       permalink: true
       toc_depth: 3
   - def_list                  # 정의 목록
+  - abbr                      # 약어/툴팁
 
 extra_javascript:
   # MathJax 설정 (기존 콘텐츠와 동일)
+  - https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js
+  - javascripts/mermaid-init.js
   - javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
@@ -161,23 +164,21 @@ nav:
         - Normal: theory/samplers/scheduler/normal.md
         - SGM Uniform: theory/samplers/scheduler/sgm_uniform.md
         - Simple: theory/samplers/scheduler/simple.md
-    - 옵티마이저:
-      - theory/optimizers/index.md
-      - AdamW: theory/optimizers/adamw.md
-      - AdamW 8bit: theory/optimizers/adamw8bit.md
-      - AdamW 8bit Kahan: theory/optimizers/adamw8bitkahan.md
-      - AdamW (optimi): theory/optimizers/adamw_optimi.md
-      - StableAdamW: theory/optimizers/stableadamw.md
-      - Prodigy: theory/optimizers/prodigy.md
-      - Muon: theory/optimizers/muon.md
-    - 훈련 이론:
+    - 훈련·최적화 수학:
       - theory/training/index.md
       - 목적함수: theory/training/objectives.md
       - LoRA 수학: theory/training/lora.md
+      - 옵티마이저:
+        - theory/optimizers/index.md
+        - AdamW: theory/optimizers/adamw.md
+        - AdamW 8bit: theory/optimizers/adamw8bit.md
+        - AdamW 8bit Kahan: theory/optimizers/adamw8bitkahan.md
+        - AdamW (optimi): theory/optimizers/adamw_optimi.md
+        - StableAdamW: theory/optimizers/stableadamw.md
+        - Prodigy: theory/optimizers/prodigy.md
+        - Muon: theory/optimizers/muon.md
     - 아키텍처:
       - theory/architecture/index.md
-    - 기호 사전: theory/notation.md
-
   - 🧩 모델:
     - models/index.md
     - Flux:

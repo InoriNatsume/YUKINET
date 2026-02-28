@@ -1,37 +1,47 @@
 # AdamW8bit — 8-bit Quantized AdamW
 
-> 분류: Adam 계열 (양자화) · sd-scripts ✓ · diffusion-pipe ✓
+> 분류: Adam 계열(양자화) · sd-scripts ✓ · diffusion-pipe ✓
 
-## 수학 정의
+## 핵심 아이디어
 
-bitsandbytes (Dettmers et al.) 구현. AdamW의 모멘텀/분산을 블록 단위 8-bit 동적양자화.
+AdamW의 상태 텐서(`m_t`, `v_t`)를 FP32 대신 8bit 블록 양자화로 저장해
+메모리를 절감합니다.
 
-$$
-m_t^{(8)} = Q_8(m_t),\quad v_t^{(8)} = Q_8(v_t)
-$$Q_8(x) = \text{round}\!\left(\frac{x}{\max(|x_\text{block}|)} \cdot 127\right),\quad \text{block size}=2048$$
-업데이트 시 FP32로 디퀀타이즈 → 계산 → 재양자화.
+\[
+m_t^{(8)}=Q_8(m_t),\qquad v_t^{(8)}=Q_8(v_t)
+\]
 
-## 메모리 절감
-$$\text{FP32 AdamW}: 8|\theta|\text{ bytes} \quad\longrightarrow\quad \text{8-bit}: 2|\theta|\text{ bytes}\quad (\times4\text{ 절감})$$
-1B 파라미터: 8GB → 2GB optimizer states
+\[
+Q_8(x)=\operatorname{round}\!\left(\frac{x}{\max(|x_{\text{block}}|)}\cdot127\right)
+\]
 
-## 변형: AdamW8bitKahan (diffusion-pipe)
-$$\text{Kahan Summation: }\; s_{t+1} = s_t + (x_\text{exact} - x_\text{rounded})$$
-$$
+## 메모리 관점
 
-BF16 파라미터에서 누적되는 반올림 오차를 보상 텐서 $s$에 축적. 장기 학습에서 정밀도 유지.
+\[
+\text{FP32 AdamW state}\approx 8|\theta|\ \text{bytes}
+\quad\rightarrow\quad
+\text{8bit state}\approx 2|\theta|\ \text{bytes}
+\]
+
+즉 상태 메모리 기준 약 4배 절감이 가능합니다.
+
+## Kahan 보정과의 관계
+
+8bit 자체는 저장량을 줄이지만 누적 오차가 커질 수 있습니다.
+그래서 일부 구현은 Kahan 보정(또는 유사 보상 텐서)을 함께 사용합니다.
+
+\[
+s_{t+1}=s_t + (x_{\text{exact}}-x_{\text{rounded}})
+\]
 
 ## 코드 매핑
 
 ```python
-# sd-scripts: --optimizer_type AdamW8bit
+# sd-scripts
 from bitsandbytes.optim import AdamW8bit
 optimizer = AdamW8bit(params, lr=lr, betas=betas)
 
-# diffusion-pipe: type = "adamw8bit"
+# diffusion-pipe
 from bitsandbytes.optim import AdamW8bit
-
-# diffusion-pipe Kahan 변형: type = "adamw8bitkahan"
-from optimizers.adamw_8bit import AdamW8bitKahan
-optimizer = AdamW8bitKahan(params, lr=lr, stabilize=True)
+optimizer = AdamW8bit(params, lr=lr, betas=betas)
 ```
